@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "timbre"
+version = "0.1.0"
+description = "Content + filename based audio sample classifier (API, CLI, and HTTP server)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "click>=8.1",
+    "numpy>=1.26",
+    "soundfile>=0.12",
+    "librosa>=0.10",
+]
+
+[project.optional-dependencies]
+# `--backend clap` — local zero-shot audio-text embedding.
+clap = [
+    "torch>=2.0",
+    "torchaudio>=2.0",
+    "torchvision>=0.15",
+    "laion-clap>=1.1",
+]
+# `--backend ace-step` — local ACE-Step captioner (Qwen2.5-Omni multimodal).
+ace-step = [
+    "torch>=2.0",
+    "transformers>=4.44",
+]
+
+[project.scripts]
+timbre = "timbre.cli:cli"
+
+[tool.hatch.build.targets.wheel]
+packages = ["timbre"]
