@@ -1,5 +1,7 @@
 # timbre
 
+[![CI](https://github.com/jesse-lane-ai/timbre/actions/workflows/ci.yml/badge.svg)](https://github.com/jesse-lane-ai/timbre/actions/workflows/ci.yml)
+
 Content + filename based audio sample classifier. Given an audio file, timbre
 tells you what it is — `kind` (loop / one-shot), a coarse `category`
 (kick/snare/bass/melodic/…), `instruments`, and name-derived `key`/`scale`/`bpm`.
