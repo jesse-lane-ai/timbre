@@ -155,3 +155,66 @@ def classify_many(
     finally:
         if tmpdir is not None:
             tmpdir.cleanup()
+
+
+# --------------------------------------------------------------------------
+# Persistent-store convenience API — read/write the configured (or given) DB.
+# These open and close a connection per call; for tight loops use timbre.store
+# against a long-lived connection directly.
+# --------------------------------------------------------------------------
+
+def _resolve_db(db):
+    from . import config
+
+    return db if db is not None else config.db_path()
+
+
+def _norm_path(path) -> str:
+    return str(Path(path).expanduser().resolve())
+
+
+def query(*, db=None, **filters) -> list[Tags]:
+    """Filtered read over the store. Filters: category, kind, key, scale,
+    backend, instrument, bpm_min, bpm_max, path_like, edited, order, limit."""
+    from . import store
+
+    con = store.open_db(_resolve_db(db))
+    try:
+        return store.query(con, **filters)
+    finally:
+        con.close()
+
+
+def get(path, *, db=None) -> Tags | None:
+    """Fetch one stored entry by file path (or None)."""
+    from . import store
+
+    con = store.open_db(_resolve_db(db))
+    try:
+        return store.get(con, _norm_path(path))
+    finally:
+        con.close()
+
+
+def update(path, fields: dict | None = None, *, db=None, **kw) -> Tags:
+    """Create-or-update a stored entry's tags (marks it edited). Pass fields as
+    a dict and/or keywords: ``update(p, category="kick", bpm=90)``."""
+    from . import store
+
+    merged = {**(fields or {}), **kw}
+    con = store.open_db(_resolve_db(db))
+    try:
+        return store.update(con, _norm_path(path), merged)
+    finally:
+        con.close()
+
+
+def delete(path, *, db=None) -> bool:
+    """Delete a stored entry. Returns True if a row was removed."""
+    from . import store
+
+    con = store.open_db(_resolve_db(db))
+    try:
+        return store.delete(con, _norm_path(path))
+    finally:
+        con.close()

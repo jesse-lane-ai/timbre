@@ -6,11 +6,21 @@ open (``*``) because the intended client is a local single-file browser app
 
 Endpoints::
 
-    GET  /backends                     -> {"ok": true, "data": ["ace-step","clap","heuristic"]}
-    GET  /health                       -> {"ok": true, "data": {"status": "ok"}}
-    POST /classify?backend=heuristic   -> {"ok": true, "data": {...Tags...}}
-         body: raw audio bytes (e.g. fetch(url, {method:'POST', body: file}))
-         optional header: X-Filename: kick_01.wav   (name hint for the name pass)
+    GET    /backends                     -> ["ace-step","clap","heuristic"]
+    GET    /health                       -> {"status": "ok"}
+    POST   /classify?backend=heuristic   -> {...Tags...}   (stateless; does not persist)
+           body: raw audio bytes (e.g. fetch(url, {method:'POST', body: file}))
+           optional header: X-Filename: kick_01.wav   (name hint for the name pass)
+
+  Persistent store (read/write the configured DB) — for library managers:
+
+    GET    /tags?category=kick&bpm_min=80&limit=50   -> [ {...Tags...}, ... ]
+    GET    /tag?path=/abs/kick.wav                    -> {...Tags...}
+    POST   /tag    body: {"path": "...", "category": "kick", "bpm": 90, ...}
+           -> {...Tags...}   (create-or-update; marks the entry edited)
+    DELETE /tag?path=/abs/kick.wav                    -> {"deleted": "..."}
+
+All responses use the ``{"ok": bool, "data"|"error": ...}`` envelope.
 """
 
 from __future__ import annotations
@@ -19,10 +29,27 @@ import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from . import classify, list_backends
+from . import classify, delete, get, list_backends, query, update
 from .errors import TimbreError
 
 _MAX_BYTES = 64 * 1024 * 1024  # 64 MB upload cap
+
+# Query params that map straight to store.query kwargs, with their coercions.
+_FILTER_COERCE = {
+    "category": str, "kind": str, "key": str, "scale": str, "backend": str,
+    "instrument": str, "path_like": str, "order": str,
+    "bpm_min": float, "bpm_max": float, "limit": int,
+}
+
+
+def _filters_from_qs(qs: dict) -> dict:
+    out: dict = {}
+    for k, coerce in _FILTER_COERCE.items():
+        if k in qs:
+            out[k] = coerce(qs[k][0])
+    if "edited" in qs:
+        out["edited"] = qs["edited"][0].lower() not in {"0", "false", "no", ""}
+    return out
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -39,8 +66,12 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _cors(self) -> None:
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Filename")
+
+    def _read_body(self) -> bytes:
+        length = int(self.headers.get("Content-Length", 0))
+        return self.rfile.read(length) if length > 0 else b""
 
     def do_OPTIONS(self) -> None:  # noqa: N802
         self.send_response(204)
@@ -48,20 +79,59 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self) -> None:  # noqa: N802
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
+        qs = parse_qs(parsed.query)
         if path == "/backends":
             self._send(200, {"ok": True, "data": list_backends()})
         elif path == "/health":
             self._send(200, {"ok": True, "data": {"status": "ok"}})
+        elif path == "/tags":
+            self._guard(lambda: query(**_filters_from_qs(qs)), transform=lambda r: [t.to_dict() for t in r])
+        elif path == "/tag":
+            p = qs.get("path", [None])[0]
+            if not p:
+                self._send(400, {"ok": False, "error": "missing ?path="})
+                return
+
+            def _do():
+                t = get(p)
+                if t is None:
+                    raise TimbreError(f"no stored entry for: {p}", code=2)
+                return t
+
+            self._guard(_do, transform=lambda t: t.to_dict())
         else:
             self._send(404, {"ok": False, "error": f"no such endpoint: {path}"})
 
     def do_POST(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
-        if parsed.path != "/classify":
+        qs = parse_qs(parsed.query)
+        if parsed.path == "/classify":
+            self._handle_classify(qs)
+        elif parsed.path == "/tag":
+            self._handle_tag_write()
+        else:
+            self._send(404, {"ok": False, "error": f"no such endpoint: {parsed.path}"})
+
+    def do_DELETE(self) -> None:  # noqa: N802
+        parsed = urlparse(self.path)
+        if parsed.path != "/tag":
             self._send(404, {"ok": False, "error": f"no such endpoint: {parsed.path}"})
             return
-        qs = parse_qs(parsed.query)
+        p = parse_qs(parsed.query).get("path", [None])[0]
+        if not p:
+            self._send(400, {"ok": False, "error": "missing ?path="})
+            return
+
+        def _do():
+            if not delete(p):
+                raise TimbreError(f"no stored entry for: {p}", code=2)
+            return {"deleted": p}
+
+        self._guard(_do)
+
+    def _handle_classify(self, qs: dict) -> None:
         backend = qs.get("backend", ["heuristic"])[0]
         length = int(self.headers.get("Content-Length", 0))
         if length <= 0:
@@ -72,15 +142,34 @@ class _Handler(BaseHTTPRequestHandler):
             return
         data = self.rfile.read(length)
         filename = self.headers.get("X-Filename") or "upload.wav"
+        self._guard(lambda: classify(data, backend=backend, filename=filename), transform=lambda t: t.to_dict())
+
+    def _handle_tag_write(self) -> None:
         try:
-            tags = classify(data, backend=backend, filename=filename)
-        except TimbreError as e:
-            self._send(400 if e.code == 1 else 500, {"ok": False, "error": e.message, "code": e.code})
+            payload = json.loads(self._read_body() or b"{}")
+        except json.JSONDecodeError:
+            self._send(400, {"ok": False, "error": "body must be a JSON object"})
             return
-        except Exception as e:  # noqa: BLE001 — surface unexpected failures as 500
+        p = payload.get("path")
+        if not p:
+            self._send(400, {"ok": False, "error": "JSON body must include a 'path'"})
+            return
+        fields = {k: v for k, v in payload.items() if k != "path"}
+        self._guard(lambda: update(p, fields), transform=lambda t: t.to_dict())
+
+    def _guard(self, fn, transform=lambda x: x) -> None:
+        """Run a store op, mapping TimbreError codes to HTTP status and any
+        other exception to 500, all in the standard envelope."""
+        try:
+            result = fn()
+        except TimbreError as e:
+            status = {1: 400, 2: 404}.get(e.code, 500)
+            self._send(status, {"ok": False, "error": e.message, "code": e.code})
+            return
+        except Exception as e:  # noqa: BLE001
             self._send(500, {"ok": False, "error": str(e)})
             return
-        self._send(200, {"ok": True, "data": tags.to_dict()})
+        self._send(200, {"ok": True, "data": transform(result)})
 
     def log_message(self, fmt, *args):  # quieter default logging
         pass
@@ -88,7 +177,7 @@ class _Handler(BaseHTTPRequestHandler):
 
 def run(host: str = "127.0.0.1", port: int = 8765) -> None:
     httpd = ThreadingHTTPServer((host, port), _Handler)
-    print(f"timbre serve → http://{host}:{port}  (POST /classify, GET /backends)")
+    print(f"timbre serve → http://{host}:{port}  (POST /classify · GET /tags · POST/DELETE /tag)")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

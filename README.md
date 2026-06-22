@@ -37,23 +37,72 @@ timbre backends
 Every command takes `--json` and returns `{"ok": true, "data": ...}` or
 `{"ok": false, "error": ...}`.
 
-### Persistent scans (`--db`)
+### Persistent store (on by default)
 
-The classifiers are stateless, but `scan` can persist results to a sqlite DB and
-skip files that haven't changed since the last scan:
+The classifiers are stateless, but `scan` **persists results by default** to a
+sqlite DB at the XDG data location, and skips files that haven't changed since
+the last scan:
 
 ```sh
-timbre scan ./packs --db tags.db          # first run: classifies everything
-timbre scan ./packs --db tags.db          # later: unchanged files served from cache
-timbre scan ./packs --db tags.db --rescan # force a full re-classification
+timbre scan ./packs                 # classifies + persists to the configured DB
+timbre scan ./packs                 # later: unchanged files served from cache
+timbre scan ./packs --rescan        # force a full re-classification
+timbre scan ./packs --no-db         # don't persist this scan
+timbre scan ./packs --db other.db   # override the DB path for this scan
 ```
 
 Cache validity is keyed on file **mtime** and the **backend** used — touch a file
-or switch backends and it's re-classified. The `tags` table mirrors the `Tags`
-fields, so you can query it directly:
+or switch backends and it's re-classified.
+
+**Config** (env var > config file > default):
 
 ```sh
-sqlite3 tags.db "SELECT category, count(*) FROM tags GROUP BY category"
+timbre config show                       # effective settings + config file path
+timbre config set db.enabled false       # turn persistence off by default
+timbre config set db.path ~/my-tags.db   # change the default DB location
+```
+
+Env overrides: `TIMBRE_DB`, `TIMBRE_DB_ENABLED`, `TIMBRE_CONFIG`.
+
+### Reading and writing tags
+
+The store is queryable and editable from all three surfaces. Manual writes mark
+an entry **edited** — those survive normal re-scans (only `--rescan` overwrites
+them), so an external library manager can correct tags without losing them.
+
+**CLI:**
+
+```sh
+timbre db find --category kick --bpm-min 80 --bpm-max 100 --limit 20
+timbre db find --instrument snare --json
+timbre db get  /abs/path/kick.wav
+timbre db set  /abs/path/kick.wav --category snare --instruments "snare,clap"
+timbre db rm   /abs/path/kick.wav
+```
+
+**Python:**
+
+```python
+import timbre
+timbre.query(category="kick", bpm_min=80)        # -> [Tags, ...]
+timbre.get("/abs/kick.wav")                       # -> Tags | None
+timbre.update("/abs/kick.wav", category="snare", bpm=92)
+timbre.delete("/abs/kick.wav")
+```
+
+**HTTP** (`timbre serve`):
+
+| Method | Endpoint | Body / query |
+|---|---|---|
+| `GET` | `/tags?category=kick&bpm_min=80&limit=50` | filters |
+| `GET` | `/tag?path=/abs/kick.wav` | one entry |
+| `POST` | `/tag` | `{"path": "...", "category": "snare", "instruments": ["snare"]}` |
+| `DELETE` | `/tag?path=/abs/kick.wav` | — |
+
+You can still query the DB directly too:
+
+```sh
+sqlite3 ~/.local/share/timbre/tags.db "SELECT category, count(*) FROM tags GROUP BY category"
 ```
 
 ## HTTP server

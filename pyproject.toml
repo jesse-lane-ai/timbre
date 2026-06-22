@@ -7,13 +7,14 @@ name = "timbre"
 version = "0.1.0"
 description = "Content + filename based audio sample classifier (API, CLI, and HTTP server)."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = { text = "MIT" }
 dependencies = [
     "click>=8.1",
     "numpy>=1.26",
     "soundfile>=0.12",
     "librosa>=0.10",
+    "tomli-w>=1.0",
 ]
 
 [project.optional-dependencies]

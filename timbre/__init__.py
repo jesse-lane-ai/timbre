@@ -11,13 +11,17 @@ Backends: ``heuristic`` (local, no extra deps), ``clap`` (extra: ``timbre[clap]`
 ``ace-step`` (extra: ``timbre[ace-step]``). See :func:`timbre.list_backends`.
 """
 
-from .api import Tags, classify, classify_many
+from .api import Tags, classify, classify_many, delete, get, query, update
 from .recognize import FileProbe, Recognition, get_recognizer, list_backends
 
 __all__ = [
     "Tags",
     "classify",
     "classify_many",
+    "query",
+    "get",
+    "update",
+    "delete",
     "list_backends",
     "get_recognizer",
     "FileProbe",
