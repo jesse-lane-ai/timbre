@@ -77,8 +77,11 @@ def classify_many(
         raise BadInputError("filenames must be the same length as sources")
 
     # Spill any bytes sources to temp files so path-based probes/backends work.
+    # `name_src` is what the name pass parses — the FULL path/name (incl. parent
+    # folders, which carry bpm/key/kind context), distinct from the temp `real`
+    # path that bytes sources land at. `display` is the bare filename.
     tmpdir: tempfile.TemporaryDirectory | None = None
-    resolved: list[tuple[Path, str]] = []  # (real path, display name)
+    resolved: list[tuple[Path, str, str]] = []  # (real path, display name, name source)
     try:
         for i, src in enumerate(sources):
             if isinstance(src, (bytes, bytearray)):
@@ -87,16 +90,18 @@ def classify_many(
                 name = hints[i] or f"upload-{i}.wav"
                 p = Path(tmpdir.name) / Path(name).name
                 p.write_bytes(bytes(src))
-                resolved.append((p, name))
+                resolved.append((p, Path(name).name, name))
             else:
-                p = Path(src).expanduser().resolve()
-                resolved.append((p, hints[i] or p.name))
+                # Keep the path as given so the name pass sees parent folders;
+                # resolve only the real path used for reading audio.
+                p = Path(src).expanduser()
+                resolved.append((p.resolve(), p.name, str(src)))
 
         # --- name pass + probes ---
         name_infos: list[dict] = []
         probes: list[FileProbe] = []
-        for real, display in resolved:
-            ni = classify_from_names(display)
+        for real, display, name_src in resolved:
+            ni = classify_from_names(name_src)
             name_infos.append(ni)
             duration = audio_analysis.probe_duration_seconds(str(real))
             kind = ni["kind"] or "unknown"
@@ -116,7 +121,7 @@ def classify_many(
 
         # --- fuse ---
         out: list[Tags] = []
-        for (real, display), ni, probe, rec in zip(resolved, name_infos, probes, recs):
+        for (real, display, _name_src), ni, probe, rec in zip(resolved, name_infos, probes, recs):
             category = ni["category"]
             instruments = list(ni["instruments"])
             confidence = ni["confidence"]
