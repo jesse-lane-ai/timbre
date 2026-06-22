@@ -18,17 +18,17 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import time
 
 from .types import (
     INSTRUMENT_VOCAB,
-    LOOP_CATEGORIES,
-    ONESHOT_CATEGORIES,
     FileProbe,
     Recognition,
     ResultSink,
+    categories_for_kind,
 )
 
 NAME = "ace-step"
@@ -109,12 +109,25 @@ class _Analytics:
 
 
 def _categories(kind: str) -> tuple[str, ...]:
-    return LOOP_CATEGORIES if kind == "loop" else ONESHOT_CATEGORIES
+    return categories_for_kind(kind)
+
+
+def _word_re(term: str) -> "re.Pattern[str]":
+    """A whole-word matcher for a vocab term — so 'snap' doesn't fire on
+    'snappy', 'sub' on 'subtle', or 'rim' on 'primary'. Cached per term."""
+    cached = _WORD_RE_CACHE.get(term)
+    if cached is None:
+        cached = re.compile(rf"\b{re.escape(term)}\b")
+        _WORD_RE_CACHE[term] = cached
+    return cached
+
+
+_WORD_RE_CACHE: dict[str, "re.Pattern[str]"] = {}
 
 
 def _match_vocab(caption: str, vocab: tuple[str, ...]) -> list[str]:
     low = caption.lower()
-    return [term for term in vocab if term in low]
+    return [term for term in vocab if _word_re(term).search(low)]
 
 
 def _score_categories(caption: str, vocab: tuple[str, ...]) -> list[tuple[str, int, int]]:
@@ -137,10 +150,11 @@ def _score_categories(caption: str, vocab: tuple[str, ...]) -> list[tuple[str, i
     low = caption.lower()
     scored: list[tuple[str, int, int]] = []
     for rank, term in enumerate(vocab):
-        first = low.find(term)
-        if first < 0:
+        matches = list(_word_re(term).finditer(low))
+        if not matches:
             continue
-        occurrences = low.count(term)
+        first = matches[0].start()
+        occurrences = len(matches)
         scored.append((term, occurrences, first, rank))  # type: ignore[arg-type]
     # Strongest first: most occurrences, then earliest mention, then vocab order.
     scored.sort(key=lambda s: (-s[1], s[2], s[3]))

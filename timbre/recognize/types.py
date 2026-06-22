@@ -13,20 +13,61 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Protocol
 
-# Coarse category vocabulary, split by `kind` — a recognizer picks from the
-# set matching the file's already-known `kind` (one-shot vs loop). `unknown`
-# kind files are treated as one-shots for category purposes (the safer,
-# smaller vocabulary), since a recognizer's `category` is only used on the
-# fallback path anyway (see `library._fuse_category`).
+# The three real kinds (plus "unknown"). A `recording` is a long-form capture —
+# a field recording, jam, take, or voice memo — that is neither a seamlessly
+# loopable phrase nor a single hit.
+KINDS: tuple[str, ...] = ("one-shot", "loop", "recording", "unknown")
+
+# Coarse category vocabulary, split by `kind` — a recognizer picks from the set
+# matching the file's already-known `kind`. `unknown` kind files are treated as
+# one-shots for category purposes (the safer, smaller vocabulary). Use
+# `categories_for_kind()` rather than indexing these directly.
 ONESHOT_CATEGORIES: tuple[str, ...] = (
-    "kick", "snare", "clap", "hat", "tom", "crash", "ride", "rim", "perc",
-    "bass", "808", "stab", "vocal", "fx", "melody",
+    # drums
+    "kick", "snare", "clap", "snap", "hat", "tom", "crash", "ride", "rim", "perc",
+    # bass
+    "bass", "808", "sub", "reese",
+    # melodic / synth
+    "stab", "melody", "lead", "pad", "pluck", "arp", "chord", "keys", "piano",
+    # acoustic
+    "guitar", "strings", "brass",
+    # vocal
+    "vocal",
+    # sound design / fx
+    "fx", "riser", "sweep", "impact", "drone", "texture", "ambience", "foley", "noise",
 )
 LOOP_CATEGORIES: tuple[str, ...] = (
-    "drum", "perc", "bass", "melodic", "chord", "vocal", "fx", "full",
+    # drums / bass
+    "drum", "perc", "bass", "sub", "808",
+    # melodic / synth
+    "melodic", "chord", "lead", "pad", "arp", "synth", "keys", "piano",
+    # acoustic
+    "guitar", "strings", "brass",
+    # vocal
+    "vocal",
+    # sound design / fx
+    "fx", "riser", "texture", "ambience", "foley",
+    # whole-mix
+    "full",
+)
+# Long-form captures: coarse roles for what the whole recording mostly is.
+RECORDING_CATEGORIES: tuple[str, ...] = (
+    "full", "vocal", "instrument", "drum", "melodic", "chord",
+    "ambience", "field", "foley", "fx",
 )
 
-# Multi-valued instrument vocabulary — shared across one-shots and loops.
+
+def categories_for_kind(kind: str) -> tuple[str, ...]:
+    """Return the category vocabulary a recognizer should choose from for a
+    file of the given ``kind``. Unknown kinds fall back to the one-shot vocab."""
+    if kind == "loop":
+        return LOOP_CATEGORIES
+    if kind == "recording":
+        return RECORDING_CATEGORIES
+    return ONESHOT_CATEGORIES
+
+
+# Multi-valued instrument vocabulary — shared across all kinds.
 # Drum-kit and hand-percussion labels come first so percussion-heavy packs get
 # specific instrument tags (kick/snare/conga/shaker/...) instead of collapsing
 # to a bare "drums"; melodic instruments follow for non-percussion libraries.
@@ -39,8 +80,13 @@ INSTRUMENT_VOCAB: tuple[str, ...] = (
     "clave", "triangle", "djembe", "timbale", "agogo", "cabasa",
     # generic fallbacks
     "drums", "percussion",
-    # melodic / other
-    "bass", "808", "piano", "keys", "guitar", "strings", "brass", "synth",
+    # bass
+    "bass", "808", "sub", "reese",
+    # melodic / synth
+    "lead", "pad", "pluck", "arp", "synth", "keys", "piano", "organ", "bell",
+    # acoustic
+    "guitar", "strings", "violin", "cello", "brass", "trumpet", "sax", "flute", "choir",
+    # other
     "vocal", "fx",
 )
 

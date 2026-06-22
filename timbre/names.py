@@ -27,10 +27,12 @@ from typing import Any
 # ---------------------------------------------------------------------------
 
 # (keywords, category) — first match wins; checked against lowercased tokens.
+# More specific rules come before generic rollups.
 _CATEGORY_RULES: list[tuple[tuple[str, ...], str]] = [
     # drums — specific before generic
-    (("kick", "bd", "bassdrum", "bass_drum", "bass-drum", "kik", "808"), "kick"),
+    (("snap",), "snap"),
     (("rim", "rimshot", "sidestick", "side_stick", "side-stick"), "rim"),
+    (("kick", "bd", "bassdrum", "bass_drum", "bass-drum", "kik"), "kick"),
     (("snare", "sd", "snr"), "snare"),
     (("clap", "clp"), "clap"),
     (("closedhat", "closed_hat", "closed-hat", "hatclosed", "hat_closed", "chh"), "hat"),
@@ -42,23 +44,47 @@ _CATEGORY_RULES: list[tuple[tuple[str, ...], str]] = [
     (("perc", "shaker", "tamb", "cowbell", "conga", "bongo", "clave"), "perc"),
     # drum category rollups
     (("drum", "drums"), "drums"),
-    # tonal
+    # bass — specific before generic
+    (("subbass", "sub_bass", "sub-bass", "sub"), "sub"),
+    (("reese",), "reese"),
+    (("808", "eight08"), "808"),
     (("bass",), "bass"),
+    # sound design / fx — specific before the generic fx bucket
+    (("riser", "uplifter", "uplift"), "riser"),
+    (("sweep", "downlifter", "downshifter"), "sweep"),
+    (("impact", "boom", "slam"), "impact"),
+    (("drone",), "drone"),
+    (("texture", "tex"), "texture"),
+    (("ambience", "ambient", "atmos", "atmosphere"), "ambience"),
+    (("foley",), "foley"),
+    (("field", "fieldrec"), "field"),
+    (("fx", "sfx", "transition", "noise"), "fx"),
+    # tonal / synth
+    (("pluck",), "pluck"),
     (("lead",), "lead"),
+    (("arp",), "arp"),
     (("chord", "chords"), "chord"),
     (("synth",), "synth"),
     (("pad",), "pad"),
-    (("melody", "melodic", "mel"), "melody"),
-    (("keys", "piano", "key"), "keys"),
-    (("vocal", "vox", "voice", "acap", "sing"), "vocal"),
-    (("fx", "riser", "impact", "transition", "sweep", "noise"), "fx"),
-    (("arp",), "arp"),
     (("stab",), "stab"),
+    (("melody", "melodic", "mel"), "melody"),
+    (("piano",), "piano"),
+    (("keys", "key"), "keys"),
+    # acoustic instruments
+    (("guitar", "gtr"), "guitar"),
+    (("strings", "violin", "cello", "viola"), "strings"),
+    (("brass", "trumpet", "sax", "trombone", "horn"), "brass"),
+    # vocal
+    (("vocal", "vox", "voice", "acap", "sing"), "vocal"),
 ]
 
-# Sub-category labels
-_DRUM_CATEGORIES = {"kick", "snare", "clap", "hat", "tom", "crash", "ride", "rim", "perc", "drums"}
-_MELODIC_CATEGORIES = {"lead", "synth", "pad", "chord", "melody", "keys", "arp"}
+# Sub-category labels, used to derive instrument tags from a category.
+_DRUM_CATEGORIES = {"kick", "snare", "clap", "snap", "hat", "tom", "crash", "ride", "rim", "perc", "drums"}
+_MELODIC_CATEGORIES = {"lead", "synth", "pad", "pluck", "chord", "melody", "keys", "piano", "arp", "stab"}
+# Categories that ARE a single instrument tag (the tag == the category name).
+_INSTRUMENT_CATEGORIES = {"bass", "sub", "reese", "808", "guitar", "strings", "brass"}
+# Sound-design categories that all roll up to the "fx" instrument tag.
+_FX_CATEGORIES = {"fx", "riser", "sweep", "impact", "drone", "texture", "ambience", "foley", "field", "noise"}
 
 # ---------------------------------------------------------------------------
 # BPM regexes
@@ -95,6 +121,11 @@ _ENHARMONIC: dict[str, str] = {
 _LOOP_RE = re.compile(r"loop", re.I)
 # "oneshots" (plural folder name) matches as well as "oneshot"
 _ONESHOT_RE = re.compile(r"(?<![a-z])(?:one[\s_-]?shots?|oneshots?|hit|stab)(?![a-z])", re.I)
+# Long-form captures: field recordings, jams, takes, voice memos, full mixes.
+_RECORDING_RE = re.compile(
+    r"(?<![a-z])(?:recording|rec|field[\s_-]?rec(?:ording)?|voice[\s_-]?memo|jam|take\d*|bounce|full[\s_-]?mix|full[\s_-]?song|master)(?![a-z])",
+    re.I,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -151,6 +182,8 @@ def _parse_kind(text: str) -> str | None:
         return "loop"
     if _ONESHOT_RE.search(tl):
         return "one-shot"
+    if _RECORDING_RE.search(tl):
+        return "recording"
     return None
 
 
@@ -240,12 +273,12 @@ def classify_from_names(file_path: str | Path) -> dict[str, Any]:
             instruments = ["drums"]
     elif category in _MELODIC_CATEGORIES:
         instruments = [category]
+    elif category in _INSTRUMENT_CATEGORIES:
+        instruments = [category]
+    elif category in _FX_CATEGORIES:
+        instruments = ["fx"]
     elif category == "vocal":
         instruments = ["vocal"]
-    elif category == "fx":
-        instruments = ["fx"]
-    elif category == "bass":
-        instruments = ["bass"]
 
     # --- Overall confidence ---
     fired = [c for c in (kind_conf, cat_conf, bpm_conf, key_conf) if c > 0]

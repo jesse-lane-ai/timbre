@@ -397,14 +397,15 @@ def test_score_categories_ranks_by_emphasis_not_vocab_order():
     from timbre.recognize.ace_step import _score_categories
     from timbre.recognize.types import LOOP_CATEGORIES
 
-    # The caption leans on "bass" (x3) but also mentions "drum" once. The old
-    # mapping took the first vocab entry found — and `drum` precedes `bass` in
-    # LOOP_CATEGORIES — so it would have mis-bucketed this as `drum`. Scoring by
-    # occurrence count picks `bass`.
+    # The caption leans on "bass" (x3) but also mentions "sub" and "drum" once
+    # each. The old mapping took the first vocab entry found — and `drum`
+    # precedes `bass` in LOOP_CATEGORIES — so it would have mis-bucketed this as
+    # `drum`. Scoring by occurrence count picks `bass`; `sub` and `drum` follow,
+    # ordered by earliest mention.
     caption = "a deep bass, warm sub bass, bass-forward groove over a light drum"
     ranked = _score_categories(caption, LOOP_CATEGORIES)
     assert ranked[0][0] == "bass"
-    assert [c[0] for c in ranked] == ["bass", "drum"]
+    assert [c[0] for c in ranked] == ["bass", "sub", "drum"]
 
 
 def test_score_categories_tie_breaks_on_earliest_mention():

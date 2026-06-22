@@ -3,8 +3,14 @@
 [![CI](https://github.com/jesse-lane-ai/timbre/actions/workflows/ci.yml/badge.svg)](https://github.com/jesse-lane-ai/timbre/actions/workflows/ci.yml)
 
 Content + filename based audio sample classifier. Given an audio file, timbre
-tells you what it is — `kind` (loop / one-shot), a coarse `category`
-(kick/snare/bass/melodic/…), `instruments`, and name-derived `key`/`scale`/`bpm`.
+tells you what it is — `kind` (one-shot / loop / recording), a coarse `category`
+(kick/snare/bass/lead/riser/…), `instruments`, and name-derived `key`/`scale`/`bpm`.
+
+A **recording** is long-form audio that's neither a single hit nor a seamless
+loop — a field recording, jam, take, voice memo, or full mix. It's detected from
+name cues (`jam`, `take`, `field rec`, `voice memo`, `full mix`, …) or, for
+unnamed files, from duration. Category vocabularies are per-kind; see
+`timbre/recognize/types.py`.
 
 It fuses two passes:
 

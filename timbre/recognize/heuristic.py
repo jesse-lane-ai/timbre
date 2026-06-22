@@ -130,7 +130,10 @@ class HeuristicRecognizer:
         for item in items:
             try:
                 cache = self._cache_provider(str(item.path))
-                if item.kind == "loop":
+                # Loops and long-form recordings are both whole-context audio —
+                # classify them by warp character; only single hits go the
+                # spectral-one-shot route.
+                if item.kind in ("loop", "recording"):
                     category = _classify_loop(cache)
                 else:
                     category = _classify_oneshot(cache)

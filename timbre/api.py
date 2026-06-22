@@ -29,6 +29,11 @@ from .recognize.heuristic import HeuristicRecognizer
 
 Source = "str | Path | bytes"
 
+# A file with no loop/one-shot/recording name cue but a long duration is treated
+# as a `recording` (full take / field capture). Loops rarely exceed this; short
+# unnamed files stay `unknown`.
+RECORDING_MIN_SECONDS = 30.0
+
 
 @dataclass(frozen=True)
 class Tags:
@@ -104,7 +109,9 @@ def classify_many(
             ni = classify_from_names(name_src)
             name_infos.append(ni)
             duration = audio_analysis.probe_duration_seconds(str(real))
-            kind = ni["kind"] or "unknown"
+            kind = ni["kind"]
+            if kind is None:
+                kind = "recording" if (duration or 0) >= RECORDING_MIN_SECONDS else "unknown"
             probes.append(FileProbe(path=real, filename=Path(display).name, duration=duration, kind=kind))
 
         # --- content pass ---

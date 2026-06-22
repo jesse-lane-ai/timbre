@@ -20,7 +20,7 @@ extra installed raises an actionable ``BadInputError``.
 from __future__ import annotations
 
 from ..errors import BadInputError
-from .types import INSTRUMENT_VOCAB, LOOP_CATEGORIES, ONESHOT_CATEGORIES, FileProbe, Recognition
+from .types import INSTRUMENT_VOCAB, FileProbe, Recognition, categories_for_kind
 
 NAME = "clap"
 
@@ -38,9 +38,7 @@ CLAP_INSTALL_HINT = (
 
 
 def _category_prompts(kind: str) -> tuple[str, ...]:
-    if kind == "loop":
-        return LOOP_CATEGORIES
-    return ONESHOT_CATEGORIES
+    return categories_for_kind(kind)
 
 
 class ClapRecognizer:
