@@ -37,6 +37,25 @@ timbre backends
 Every command takes `--json` and returns `{"ok": true, "data": ...}` or
 `{"ok": false, "error": ...}`.
 
+### Persistent scans (`--db`)
+
+The classifiers are stateless, but `scan` can persist results to a sqlite DB and
+skip files that haven't changed since the last scan:
+
+```sh
+timbre scan ./packs --db tags.db          # first run: classifies everything
+timbre scan ./packs --db tags.db          # later: unchanged files served from cache
+timbre scan ./packs --db tags.db --rescan # force a full re-classification
+```
+
+Cache validity is keyed on file **mtime** and the **backend** used — touch a file
+or switch backends and it's re-classified. The `tags` table mirrors the `Tags`
+fields, so you can query it directly:
+
+```sh
+sqlite3 tags.db "SELECT category, count(*) FROM tags GROUP BY category"
+```
+
 ## HTTP server
 
 For browser clients (e.g. a drag-and-drop sample app) that can't import Python

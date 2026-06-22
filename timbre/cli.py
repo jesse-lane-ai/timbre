@@ -91,21 +91,71 @@ def probe(path: str, backend: str, as_json: bool):
 @cli.command("scan")
 @click.argument("folder")
 @backend_option
+@click.option("--db", "db_path", default=None, help="Persist results to a sqlite DB and skip unchanged files.")
+@click.option("--rescan", is_flag=True, default=False, help="Re-classify every file, ignoring cached rows.")
 @json_option
-def scan(folder: str, backend: str, as_json: bool):
-    """Recursively classify every audio file under FOLDER."""
+def scan(folder: str, backend: str, db_path: str | None, rescan: bool, as_json: bool):
+    """Recursively classify every audio file under FOLDER.
+
+    With --db, results are written to a sqlite DB; on a later scan, files whose
+    mtime is unchanged (and were last classified with the same backend) are
+    served from the cache instead of re-analyzed. --rescan forces a full re-run.
+    """
     root = Path(folder).expanduser().resolve()
     if not root.is_dir():
         _fail(TimbreError(f"not a directory: {root}"), as_json)
         return
     files = sorted(p for p in root.rglob("*") if p.suffix.lower() in _AUDIO_EXT)
+
+    con = None
+    if db_path:
+        from . import store
+
+        con = store.open_db(db_path)
+
     try:
-        tags = classify_many([str(p) for p in files], backend=backend)
+        results: dict[str, object] = {}  # abspath -> Tags
+        to_classify: list[Path] = []
+        cached_n = 0
+        for p in files:
+            ap = str(p.resolve())
+            if con is not None and not rescan:
+                try:
+                    mtime = p.stat().st_mtime
+                except OSError:
+                    mtime = None
+                hit = store.get_fresh(con, ap, mtime, backend)
+                if hit is not None:
+                    results[ap] = hit
+                    cached_n += 1
+                    continue
+            to_classify.append(p)
+
+        if to_classify:
+            fresh = classify_many([str(p) for p in to_classify], backend=backend)
+            for p, t in zip(to_classify, fresh):
+                ap = str(p.resolve())
+                results[ap] = t
+                if con is not None:
+                    try:
+                        mtime = p.stat().st_mtime
+                    except OSError:
+                        mtime = None
+                    store.upsert(con, ap, mtime, t)
+            if con is not None:
+                con.commit()
     except TimbreError as e:
         _fail(e, as_json)
         return
+    finally:
+        if con is not None:
+            con.close()
+
+    tags = [results[str(p.resolve())] for p in files]
     data = [t.to_dict() for t in tags]
     human = "\n".join(f"{t.category or '?':<10} {t.kind:<9} {t.filename}" for t in tags) or "(no audio files)"
+    if db_path:
+        human += f"\n\n{len(to_classify)} classified, {cached_n} from cache → {db_path}"
     _emit(data, human, as_json)
 
 
