@@ -166,3 +166,25 @@ ACESTEP_CAPTIONER_LOAD=4bit timbre scan ./packs --backend ace-step
 
 Quantization applies only to the language-model layers and is **CUDA-only** — it
 needs the `quant` extra (`bitsandbytes` + `accelerate`).
+
+#### Picking a mode for your GPU
+
+Quantization's job here is **fitting the model on a smaller card, not speeding up
+a big one.** The weights are stored in 4/8-bit but dequantized back to fp16 for
+every matmul, so on a GPU that already fits `full` the quantized modes are
+typically *slightly slower* per token. They only win on speed when `full` would
+otherwise offload to CPU or OOM.
+
+| Free VRAM | Recommended | Why |
+|---|---|---|
+| ≥ ~24 GB | `full` | Fastest, best caption quality (no dequant overhead). |
+| ~12–16 GB | `8bit` | `full` would be tight/offload; 8bit fits with minimal quality loss. |
+| ~8–12 GB | `4bit` | Often the only mode that fits; faster than `full` here only because `full` can't run. |
+| < 8 GB | use `clap` or `heuristic` | The captioner won't fit even at 4-bit. |
+
+Caption quality degrades slightly with `4bit` (nf4), which can matter since
+timbre keyword-maps the caption to a category — prefer the highest mode that fits.
+
+For **throughput**, the bigger lever than quantization is batch size: the
+captioner has a large fixed per-call cost, so raising `ACESTEP_CAPTIONER_BATCH`
+(default 8) amortizes it across more files per `generate()` call.
