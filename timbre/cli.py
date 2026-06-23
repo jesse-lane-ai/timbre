@@ -140,8 +140,32 @@ def scan(folder: str, backend: str, db_path: str | None, no_db: bool, rescan: bo
                     continue
             to_classify.append(p)
 
+        # Progress to stderr — never touches the JSON envelope on stdout.
+        # Silence with --json or MENDELL_QUIET=1.
+        import os
+
+        quiet = as_json or os.environ.get("MENDELL_QUIET") == "1"
+        if not quiet:
+            click.echo(
+                f"scanning {root}: {len(files)} audio files "
+                f"({cached_n} cached, {len(to_classify)} to classify, backend={backend})",
+                err=True,
+            )
+
         if to_classify:
-            fresh = classify_many([str(p) for p in to_classify], backend=backend)
+            n_todo = len(to_classify)
+            done = [0]
+
+            def _progress(item, _rec):
+                if quiet:
+                    return
+                done[0] += 1
+                name = getattr(item, "filename", None) or getattr(item, "path", "?")
+                click.echo(f"  [{done[0]}/{n_todo}] {name}", err=True)
+
+            fresh = classify_many(
+                [str(p) for p in to_classify], backend=backend, on_result=_progress
+            )
             for p, t in zip(to_classify, fresh):
                 ap = str(p.resolve())
                 results[ap] = t

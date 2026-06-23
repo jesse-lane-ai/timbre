@@ -74,6 +74,11 @@
     padding: 14px; text-align: center; color: var(--muted); font-size: 13px;
   }
   .drop.over { border-color: var(--accent); color: var(--fg); background: var(--panel2); }
+  .progress { margin: 0 16px 12px; display: none; }
+  .progress.show { display: block; }
+  .progress .bar { height: 6px; border-radius: 3px; background: var(--panel2); overflow: hidden; }
+  .progress .bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .15s; }
+  .progress .label { font-size: 12px; color: var(--muted); margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .toast {
     position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
     background: var(--panel2); border: 1px solid var(--line); border-radius: 8px;
@@ -124,7 +129,11 @@
     </div>
   </div>
   <aside id="aside">
-    <div class="drop" id="drop">Drop an audio file here to classify &amp; add it to the library.</div>
+    <div class="drop" id="drop">Drop audio files or a folder here to classify &amp; add them to the library.</div>
+    <div class="progress" id="progress">
+      <div class="bar"><i id="progress-fill"></i></div>
+      <div class="label" id="progress-label"></div>
+    </div>
     <div class="pad" id="editor"><p class="muted">Select a row to edit its tags.</p></div>
   </aside>
 </main>
@@ -318,27 +327,82 @@ function mergeRow(saved) {
   if (i >= 0) ROWS[i] = saved; else ROWS.unshift(saved);
 }
 
-// drag-and-drop classify
+// drag-and-drop classify (one or more files, or a dropped folder)
 const drop = $("drop");
+const AUDIO_RE = /\.(wav|aiff?|flac|ogg|mp3)$/i;
+
 ["dragenter","dragover"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("over"); }));
-["dragleave","drop"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("over"); }));
+["dragleave"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("over"); }));
 drop.addEventListener("drop", async e => {
-  const file = e.dataTransfer.files[0];
-  if (!file) return;
-  toast("Classifying " + file.name + "…");
-  try {
-    const tags = await api("/classify?backend=heuristic", {
-      method: "POST", headers: { "X-Filename": file.name }, body: file,
-    });
-    // /classify is stateless; persist it so it joins the library.
-    const saved = await api("/tag", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...tags, path: tags.path || file.name }),
-    });
-    toast("Added " + (saved.filename || file.name));
-    mergeRow(saved); SEL = saved; renderRows(); renderEditor(saved);
-  } catch (e) { toast(e.message, true); }
+  e.preventDefault(); drop.classList.remove("over");
+  const items = e.dataTransfer.items;
+  let files = [];
+  if (items && items.length && items[0].webkitGetAsEntry) {
+    // walk entries so a dropped folder is expanded recursively
+    const entries = [...items].map(i => i.webkitGetAsEntry()).filter(Boolean);
+    for (const ent of entries) files.push(...await walkEntry(ent));
+  } else {
+    files = [...(e.dataTransfer.files || [])];
+  }
+  files = files.filter(f => AUDIO_RE.test(f.name) && !f.name.startsWith("._"));
+  if (!files.length) { toast("No audio files in drop", true); return; }
+  await classifyAll(files);
 });
+
+// Recursively collect File objects from a (webkit) FileSystemEntry.
+function walkEntry(entry, prefix = "") {
+  return new Promise(resolve => {
+    if (entry.isFile) {
+      entry.file(f => { f._relpath = prefix + f.name; resolve([f]); }, () => resolve([]));
+    } else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      const all = [];
+      const readBatch = () => reader.readEntries(async ents => {
+        if (!ents.length) {
+          const nested = await Promise.all(all.map(en => walkEntry(en, prefix + entry.name + "/")));
+          resolve(nested.flat());
+        } else { all.push(...ents); readBatch(); }
+      }, () => resolve([]));
+      readBatch();
+    } else resolve([]);
+  });
+}
+
+const progress = $("progress"), pFill = $("progress-fill"), pLabel = $("progress-label");
+
+async function classifyAll(files) {
+  progress.classList.add("show");
+  let done = 0, added = 0, last = null;
+  for (const file of files) {
+    pLabel.textContent = `Classifying ${file.name}  (${done + 1}/${files.length})`;
+    try {
+      const tags = await api("/classify?backend=heuristic", {
+        method: "POST", headers: { "X-Filename": file.name }, body: file,
+      });
+      // /classify is stateless; persist it so it joins the library. Only send
+      // editable fields — the store rejects managed ones (e.g. `edited`), and the
+      // browser can't supply a real filesystem path, so key it by relative path.
+      const saved = await api("/tag", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path: file._relpath || tags.path || file.name,
+          kind: tags.kind, category: tags.category, instruments: tags.instruments,
+          key: tags.key, scale: tags.scale, bpm: tags.bpm,
+          duration: tags.duration, caption: tags.caption, backend: tags.backend,
+        }),
+      });
+      mergeRow(saved); last = saved; added++;
+    } catch (err) {
+      toast(`${file.name}: ${err.message}`, true);
+    }
+    done++;
+    pFill.style.width = Math.round((done / files.length) * 100) + "%";
+  }
+  renderRows();
+  if (last) { SEL = last; renderEditor(last); }
+  toast(`Added ${added} of ${files.length} file${files.length === 1 ? "" : "s"}`);
+  setTimeout(() => { progress.classList.remove("show"); pFill.style.width = "0"; }, 800);
+}
 
 // sorting
 document.querySelectorAll("th[data-sort]").forEach(th => {

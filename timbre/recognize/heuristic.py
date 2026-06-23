@@ -125,7 +125,7 @@ class HeuristicRecognizer:
     def __init__(self, cache_provider: Callable[[str], audio_analysis._AnalysisCache] | None = None):
         self._cache_provider = cache_provider or audio_analysis._AnalysisCache
 
-    def recognize(self, items: list[FileProbe]) -> list[Recognition | None]:
+    def recognize(self, items: list[FileProbe], on_result=None) -> list[Recognition | None]:
         results: list[Recognition | None] = []
         for item in items:
             try:
@@ -140,8 +140,17 @@ class HeuristicRecognizer:
             except Exception:
                 # Unreadable/corrupt audio — defer to the filename guess.
                 results.append(None)
+                if on_result is not None:
+                    try:
+                        on_result(item, None)
+                    except Exception:
+                        pass
                 continue
-            results.append(
-                Recognition(category=category, instruments=[], source=NAME, confidence=CONFIDENCE)
-            )
+            rec = Recognition(category=category, instruments=[], source=NAME, confidence=CONFIDENCE)
+            results.append(rec)
+            if on_result is not None:
+                try:
+                    on_result(item, rec)
+                except Exception:
+                    pass
         return results
