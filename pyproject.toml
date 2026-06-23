@@ -42,3 +42,6 @@ timbre = "timbre.cli:cli"
 
 [tool.hatch.build.targets.wheel]
 packages = ["timbre"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"timbre/ui/index.html" = "timbre/ui/index.html"

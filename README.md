@@ -113,6 +113,30 @@ You can still query the DB directly too:
 sqlite3 ~/.local/share/timbre/tags.db "SELECT category, count(*) FROM tags GROUP BY category"
 ```
 
+## Library manager UI
+
+`timbre serve` also hosts a built-in, zero-build library manager at the server
+root — open it in a browser to browse, filter, edit, and delete tags in the
+persistent store:
+
+```sh
+timbre serve --port 8765        # then open http://127.0.0.1:8765/
+```
+
+It's a single static HTML file (no framework, no build step) that talks to the
+same HTTP API documented below. You can:
+
+- **filter** the store by kind, category, instrument, key/scale, BPM range, path
+  substring, backend, and edited-state;
+- **edit** any entry's tags inline (kind/category dropdowns are populated from
+  the live taxonomy via `/vocab`) — saves mark the entry **edited** so it
+  survives re-scans;
+- **delete** entries;
+- **drag-and-drop** an audio file onto the panel to classify it and add it to the
+  library in one step.
+
+Manually-edited rows are flagged with a ✎ in the list.
+
 ## HTTP server
 
 For browser clients (e.g. a drag-and-drop sample app) that can't import Python
@@ -136,7 +160,9 @@ CORS is wide open (`*`) — the server is meant to be run locally next to the ap
 
 | Method | Endpoint | Returns |
 |---|---|---|
+| `GET` | `/` · `/ui` | the library-manager web app (HTML) |
 | `GET` | `/backends` | available backend names |
+| `GET` | `/vocab` | taxonomy: kinds, per-kind categories, instruments |
 | `GET` | `/health` | `{"status": "ok"}` |
 | `POST` | `/classify?backend=…` | a `Tags` object (audio file as raw body) |
 

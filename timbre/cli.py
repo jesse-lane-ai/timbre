@@ -107,7 +107,11 @@ def scan(folder: str, backend: str, db_path: str | None, no_db: bool, rescan: bo
     if not root.is_dir():
         _fail(TimbreError(f"not a directory: {root}"), as_json)
         return
-    files = sorted(p for p in root.rglob("*") if p.suffix.lower() in _AUDIO_EXT)
+    files = sorted(
+        p
+        for p in root.rglob("*")
+        if p.suffix.lower() in _AUDIO_EXT and not p.name.startswith("._")
+    )
 
     from . import config, store
 

@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>timbre — library manager</title>
+<style>
+  :root {
+    --bg: #14161a; --panel: #1c1f26; --panel2: #232733; --line: #2e3340;
+    --fg: #e6e9ef; --muted: #8b93a3; --accent: #6ea8fe; --accent2: #2b3a55;
+    --edited: #d8a657; --danger: #e06c75; --ok: #98c379;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: var(--bg); color: var(--fg); height: 100vh; display: flex; flex-direction: column;
+  }
+  header {
+    display: flex; align-items: center; gap: 12px; padding: 10px 16px;
+    border-bottom: 1px solid var(--line); background: var(--panel);
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; letter-spacing: .5px; }
+  header .status { margin-left: auto; color: var(--muted); font-size: 12px; }
+  header .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--danger); margin-right: 5px; }
+  header .dot.up { background: var(--ok); }
+  main { flex: 1; display: flex; min-height: 0; }
+  .filters {
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: end;
+    padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel);
+  }
+  .filters .field { display: flex; flex-direction: column; gap: 3px; }
+  .filters label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }
+  input, select, button, textarea {
+    font: inherit; color: var(--fg); background: var(--panel2);
+    border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px;
+  }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
+  input[type=number] { width: 80px; }
+  input.short { width: 70px; }
+  button { cursor: pointer; }
+  button.primary { background: var(--accent2); border-color: var(--accent); }
+  button.primary:hover { background: #34507a; }
+  button.danger { color: var(--danger); border-color: #4a2d31; }
+  button.danger:hover { background: #3a2326; }
+  button.ghost { background: transparent; }
+  .left { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .tablewrap { flex: 1; overflow: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { position: sticky; top: 0; background: var(--panel); color: var(--muted); font-weight: 600; font-size: 12px; cursor: pointer; user-select: none; }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover { background: var(--panel2); }
+  tbody tr.sel { background: var(--accent2); }
+  td.file { max-width: 380px; overflow: hidden; text-overflow: ellipsis; }
+  .badge { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 11px; background: var(--panel2); border: 1px solid var(--line); }
+  .badge.kind { color: var(--accent); }
+  .edited-flag { color: var(--edited); margin-left: 5px; }
+  .muted { color: var(--muted); }
+  aside {
+    width: 340px; border-left: 1px solid var(--line); background: var(--panel);
+    display: flex; flex-direction: column; overflow: auto;
+  }
+  aside .pad { padding: 14px 16px; }
+  aside h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin: 0 0 4px; }
+  aside .path { font-size: 12px; color: var(--muted); word-break: break-all; margin-bottom: 12px; }
+  .editrow { display: flex; flex-direction: column; gap: 3px; margin-bottom: 10px; }
+  .editrow label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }
+  .editrow input, .editrow select, .editrow textarea { width: 100%; }
+  .actions { display: flex; gap: 8px; margin-top: 6px; }
+  .actions button { flex: 1; }
+  .empty { padding: 40px; text-align: center; color: var(--muted); }
+  .drop {
+    margin: 12px 16px; border: 1.5px dashed var(--line); border-radius: 8px;
+    padding: 14px; text-align: center; color: var(--muted); font-size: 13px;
+  }
+  .drop.over { border-color: var(--accent); color: var(--fg); background: var(--panel2); }
+  .toast {
+    position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+    background: var(--panel2); border: 1px solid var(--line); border-radius: 8px;
+    padding: 8px 16px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+  .toast.err { border-color: var(--danger); color: var(--danger); }
+</style>
+</head>
+<body>
+<header>
+  <h1>timbre</h1>
+  <span class="muted">library manager</span>
+  <span class="status"><span class="dot" id="dot"></span><span id="serverInfo">connecting…</span></span>
+</header>
+
+<div class="filters" id="filters">
+  <div class="field"><label>search path</label><input id="f-path" placeholder="substring…"></div>
+  <div class="field"><label>kind</label><select id="f-kind"><option value="">any</option></select></div>
+  <div class="field"><label>category</label><select id="f-category"><option value="">any</option></select></div>
+  <div class="field"><label>instrument</label><input id="f-instrument" class="short" placeholder="any"></div>
+  <div class="field"><label>key</label><input id="f-key" class="short" placeholder="any"></div>
+  <div class="field"><label>scale</label><input id="f-scale" class="short" placeholder="any"></div>
+  <div class="field"><label>bpm min</label><input id="f-bpmmin" type="number" min="0"></div>
+  <div class="field"><label>bpm max</label><input id="f-bpmmax" type="number" min="0"></div>
+  <div class="field"><label>backend</label><select id="f-backend"><option value="">any</option></select></div>
+  <div class="field"><label>edited</label><select id="f-edited"><option value="">any</option><option value="true">edited only</option><option value="false">not edited</option></select></div>
+  <div class="field"><label>limit</label><input id="f-limit" type="number" min="1" value="500"></div>
+  <div class="field"><label>&nbsp;</label><button class="primary" id="apply">Apply</button></div>
+  <div class="field"><label>&nbsp;</label><button class="ghost" id="reset">Reset</button></div>
+</div>
+
+<main>
+  <div class="left">
+    <div class="tablewrap">
+      <table>
+        <thead><tr>
+          <th data-sort="category">category</th>
+          <th data-sort="kind">kind</th>
+          <th data-sort="bpm">bpm</th>
+          <th data-sort="key">key</th>
+          <th data-sort="instruments">instruments</th>
+          <th data-sort="filename">file</th>
+        </tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <div class="empty" id="empty" style="display:none">No matching entries.</div>
+    </div>
+  </div>
+  <aside id="aside">
+    <div class="drop" id="drop">Drop an audio file here to classify &amp; add it to the library.</div>
+    <div class="pad" id="editor"><p class="muted">Select a row to edit its tags.</p></div>
+  </aside>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API = location.origin && location.protocol.startsWith("http") ? location.origin : "http://127.0.0.1:8765";
+let VOCAB = { kinds: [], categories_by_kind: {}, all_categories: [], instruments: [] };
+let ROWS = [];
+let SEL = null;
+let SORT = { key: "filename", dir: 1 };
+
+const $ = (id) => document.getElementById(id);
+
+function toast(msg, isErr) {
+  const t = $("toast");
+  t.textContent = msg; t.className = "toast show" + (isErr ? " err" : "");
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.className = "toast", 2200);
+}
+
+async function api(path, opts) {
+  const res = await fetch(API + path, opts);
+  let body;
+  try { body = await res.json(); } catch { throw new Error("bad response from server"); }
+  if (!body.ok) throw new Error(body.error || ("HTTP " + res.status));
+  return body.data;
+}
+
+async function checkHealth() {
+  try {
+    await api("/health");
+    $("dot").classList.add("up");
+    $("serverInfo").textContent = API.replace(/^https?:\/\//, "");
+  } catch {
+    $("dot").classList.remove("up");
+    $("serverInfo").textContent = "no server at " + API;
+  }
+}
+
+async function loadVocab() {
+  try {
+    VOCAB = await api("/vocab");
+  } catch {
+    // /vocab may be missing on older servers — degrade to free text.
+    VOCAB = { kinds: ["one-shot","loop","recording","unknown"], categories_by_kind: {}, all_categories: [], instruments: [] };
+  }
+  fillSelect($("f-kind"), VOCAB.kinds, "any");
+  fillSelect($("f-category"), VOCAB.all_categories, "any");
+  try { fillSelect($("f-backend"), await api("/backends"), "any"); } catch {}
+}
+
+function fillSelect(sel, values, anyLabel) {
+  const cur = sel.value;
+  sel.innerHTML = "";
+  if (anyLabel !== undefined) sel.add(new Option(anyLabel, ""));
+  for (const v of values) sel.add(new Option(v, v));
+  sel.value = cur;
+}
+
+function filtersToQuery() {
+  const qs = new URLSearchParams();
+  const map = {
+    path_like: "f-path", kind: "f-kind", category: "f-category", instrument: "f-instrument",
+    key: "f-key", scale: "f-scale", bpm_min: "f-bpmmin", bpm_max: "f-bpmmax",
+    backend: "f-backend", limit: "f-limit",
+  };
+  for (const [k, id] of Object.entries(map)) {
+    const v = $(id).value.trim();
+    if (v) qs.set(k, v);
+  }
+  const ed = $("f-edited").value;
+  if (ed) qs.set("edited", ed);
+  return qs.toString();
+}
+
+async function refresh() {
+  try {
+    ROWS = await api("/tags" + (filtersToQuery() ? "?" + filtersToQuery() : ""));
+    renderRows();
+  } catch (e) { toast(e.message, true); }
+}
+
+function sortRows() {
+  const { key, dir } = SORT;
+  ROWS.sort((a, b) => {
+    let x = a[key], y = b[key];
+    if (Array.isArray(x)) x = x.join(",");
+    if (Array.isArray(y)) y = y.join(",");
+    if (x == null) x = ""; if (y == null) y = "";
+    if (typeof x === "number" && typeof y === "number") return (x - y) * dir;
+    return String(x).localeCompare(String(y)) * dir;
+  });
+}
+
+function renderRows() {
+  sortRows();
+  const tb = $("rows"); tb.innerHTML = "";
+  $("empty").style.display = ROWS.length ? "none" : "block";
+  for (const r of ROWS) {
+    const tr = document.createElement("tr");
+    if (SEL && SEL.path === r.path) tr.classList.add("sel");
+    tr.innerHTML =
+      `<td><span class="badge">${esc(r.category || "—")}</span></td>` +
+      `<td><span class="badge kind">${esc(r.kind || "—")}</span></td>` +
+      `<td>${r.bpm ?? "—"}</td>` +
+      `<td>${esc(r.key || "—")}${r.scale ? " " + esc(r.scale) : ""}</td>` +
+      `<td class="muted">${esc((r.instruments || []).join(", ") || "—")}</td>` +
+      `<td class="file" title="${esc(r.path || "")}">${esc(r.filename || "")}` +
+        `${r.edited ? '<span class="edited-flag" title="manually edited">✎</span>' : ""}</td>`;
+    tr.onclick = () => selectRow(r);
+    tb.appendChild(tr);
+  }
+}
+
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+
+function selectRow(r) {
+  SEL = r; renderRows(); renderEditor(r);
+}
+
+function catOptionsFor(kind) {
+  const byKind = VOCAB.categories_by_kind || {};
+  return byKind[kind] || byKind[kind === "unknown" ? "one-shot" : kind] || VOCAB.all_categories || [];
+}
+
+function renderEditor(r) {
+  const cats = catOptionsFor(r.kind);
+  const catOpts = ['<option value="">—</option>']
+    .concat((cats.includes(r.category) || !r.category ? cats : [r.category, ...cats])
+      .map(c => `<option ${c === r.category ? "selected" : ""}>${esc(c)}</option>`)).join("");
+  const kindOpts = VOCAB.kinds.map(k => `<option ${k === r.kind ? "selected" : ""}>${esc(k)}</option>`).join("");
+  $("editor").innerHTML = `
+    <h2>Edit tags ${r.edited ? '<span class="edited-flag">✎ edited</span>' : ""}</h2>
+    <div class="path">${esc(r.path)}</div>
+    <div class="editrow"><label>kind</label><select id="e-kind">${kindOpts}</select></div>
+    <div class="editrow"><label>category</label><select id="e-category">${catOpts}</select></div>
+    <div class="editrow"><label>instruments (comma-separated)</label><input id="e-instruments" value="${esc((r.instruments||[]).join(", "))}"></div>
+    <div class="editrow"><label>key</label><input id="e-key" value="${esc(r.key||"")}"></div>
+    <div class="editrow"><label>scale</label><input id="e-scale" value="${esc(r.scale||"")}"></div>
+    <div class="editrow"><label>bpm</label><input id="e-bpm" type="number" step="0.01" value="${r.bpm ?? ""}"></div>
+    <div class="editrow"><label>caption</label><textarea id="e-caption" rows="2">${esc(r.caption||"")}</textarea></div>
+    <div class="actions">
+      <button class="primary" id="save">Save</button>
+      <button class="danger" id="del">Delete</button>
+    </div>`;
+  // re-fill category list when kind changes
+  $("e-kind").onchange = () => {
+    const k = $("e-kind").value;
+    const cs = catOptionsFor(k);
+    fillSelect($("e-category"), cs, "—");
+  };
+  $("save").onclick = () => saveRow(r.path);
+  $("del").onclick = () => delRow(r.path);
+}
+
+async function saveRow(path) {
+  const insStr = $("e-instruments").value.trim();
+  const payload = {
+    path,
+    kind: $("e-kind").value || null,
+    category: $("e-category").value || null,
+    instruments: insStr ? insStr.split(",").map(s => s.trim()).filter(Boolean) : [],
+    key: $("e-key").value.trim() || null,
+    scale: $("e-scale").value.trim() || null,
+    caption: $("e-caption").value.trim() || null,
+  };
+  const bpm = $("e-bpm").value.trim();
+  if (bpm) payload.bpm = parseFloat(bpm);
+  try {
+    const saved = await api("/tag", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    toast("Saved");
+    mergeRow(saved);
+    SEL = saved; renderRows(); renderEditor(saved);
+  } catch (e) { toast(e.message, true); }
+}
+
+async function delRow(path) {
+  if (!confirm("Remove this entry from the library?\n\n" + path)) return;
+  try {
+    await api("/tag?path=" + encodeURIComponent(path), { method: "DELETE" });
+    toast("Deleted");
+    ROWS = ROWS.filter(r => r.path !== path);
+    SEL = null; renderRows();
+    $("editor").innerHTML = '<p class="muted">Select a row to edit its tags.</p>';
+  } catch (e) { toast(e.message, true); }
+}
+
+function mergeRow(saved) {
+  const i = ROWS.findIndex(r => r.path === saved.path);
+  if (i >= 0) ROWS[i] = saved; else ROWS.unshift(saved);
+}
+
+// drag-and-drop classify
+const drop = $("drop");
+["dragenter","dragover"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave","drop"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", async e => {
+  const file = e.dataTransfer.files[0];
+  if (!file) return;
+  toast("Classifying " + file.name + "…");
+  try {
+    const tags = await api("/classify?backend=heuristic", {
+      method: "POST", headers: { "X-Filename": file.name }, body: file,
+    });
+    // /classify is stateless; persist it so it joins the library.
+    const saved = await api("/tag", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...tags, path: tags.path || file.name }),
+    });
+    toast("Added " + (saved.filename || file.name));
+    mergeRow(saved); SEL = saved; renderRows(); renderEditor(saved);
+  } catch (e) { toast(e.message, true); }
+});
+
+// sorting
+document.querySelectorAll("th[data-sort]").forEach(th => {
+  th.onclick = () => {
+    const k = th.dataset.sort;
+    SORT = { key: k, dir: SORT.key === k ? -SORT.dir : 1 };
+    renderRows();
+  };
+});
+
+$("apply").onclick = refresh;
+$("reset").onclick = () => {
+  document.querySelectorAll(".filters input").forEach(i => i.value = i.id === "f-limit" ? "500" : "");
+  document.querySelectorAll(".filters select").forEach(s => s.value = "");
+  refresh();
+};
+$("filters").addEventListener("keydown", e => { if (e.key === "Enter") refresh(); });
+
+(async function init() {
+  await checkHealth();
+  await loadVocab();
+  await refresh();
+  setInterval(checkHealth, 10000);
+})();
+</script>
+</body>
+</html>

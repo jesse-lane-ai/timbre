@@ -27,12 +27,38 @@ from __future__ import annotations
 
 import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from . import classify, delete, get, list_backends, query, update
 from .errors import TimbreError
+from .recognize.types import (
+    INSTRUMENT_VOCAB,
+    KINDS,
+    LOOP_CATEGORIES,
+    ONESHOT_CATEGORIES,
+    RECORDING_CATEGORIES,
+)
 
 _MAX_BYTES = 64 * 1024 * 1024  # 64 MB upload cap
+_UI_DIR = Path(__file__).parent / "ui"
+
+
+def _vocab() -> dict:
+    """Taxonomy the library-manager UI uses to populate its edit dropdowns."""
+    by_kind = {
+        "one-shot": list(ONESHOT_CATEGORIES),
+        "loop": list(LOOP_CATEGORIES),
+        "recording": list(RECORDING_CATEGORIES),
+        "unknown": list(ONESHOT_CATEGORIES),
+    }
+    all_categories = sorted(set().union(*(set(v) for v in by_kind.values())))
+    return {
+        "kinds": list(KINDS),
+        "categories_by_kind": by_kind,
+        "all_categories": all_categories,
+        "instruments": list(INSTRUMENT_VOCAB),
+    }
 
 # Query params that map straight to store.query kwargs, with their coercions.
 _FILTER_COERCE = {
@@ -64,6 +90,19 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _send_ui(self) -> None:
+        try:
+            body = (_UI_DIR / "index.html").read_bytes()
+        except OSError:
+            self._send(404, {"ok": False, "error": "library-manager UI not found"})
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self._cors()
+        self.end_headers()
+        self.wfile.write(body)
+
     def _cors(self) -> None:
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
@@ -82,8 +121,12 @@ class _Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
         qs = parse_qs(parsed.query)
-        if path == "/backends":
+        if path in ("/", "/ui", "/index.html"):
+            self._send_ui()
+        elif path == "/backends":
             self._send(200, {"ok": True, "data": list_backends()})
+        elif path == "/vocab":
+            self._send(200, {"ok": True, "data": _vocab()})
         elif path == "/health":
             self._send(200, {"ok": True, "data": {"status": "ok"}})
         elif path == "/tags":
@@ -177,7 +220,7 @@ class _Handler(BaseHTTPRequestHandler):
 
 def run(host: str = "127.0.0.1", port: int = 8765) -> None:
     httpd = ThreadingHTTPServer((host, port), _Handler)
-    print(f"timbre serve → http://{host}:{port}  (POST /classify · GET /tags · POST/DELETE /tag)")
+    print(f"timbre serve → http://{host}:{port}  (library manager UI at /  ·  API: /classify /tags /tag /vocab)")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

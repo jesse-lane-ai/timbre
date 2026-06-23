@@ -51,6 +51,9 @@ class Tags:
     caption: str | None = None
     backend: str = "heuristic"
     path: str | None = None
+    # True when the stored entry was manually corrected (survives non-`--rescan`
+    # scans). Always False for fresh, un-persisted classifications.
+    edited: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

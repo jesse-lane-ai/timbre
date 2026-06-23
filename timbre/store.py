@@ -203,4 +203,5 @@ def _row_to_tags(row: sqlite3.Row) -> Tags:
         caption=row["caption"],
         backend=row["backend"],
         path=row["path"],
+        edited=bool(row["edited"]),
     )
