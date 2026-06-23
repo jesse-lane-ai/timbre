@@ -143,7 +143,26 @@ CORS is wide open (`*`) — the server is meant to be run locally next to the ap
 ## Install
 
 ```sh
-pip install -e .                 # base (heuristic backend)
-pip install -e '.[clap]'         # + CLAP
-pip install -e '.[ace-step]'     # + ACE-Step captioner
+pip install -e .                       # base (heuristic backend)
+pip install -e '.[clap]'               # + CLAP
+pip install -e '.[ace-step]'           # + ACE-Step captioner
+pip install -e '.[ace-step,quant]'     # + 8/4-bit quantization (CUDA only)
 ```
+
+### ACE-Step quantization
+
+The ACE-Step captioner is large (~22 GB in `full` mode). On an NVIDIA GPU you can
+quantize it in-flight via the `ACESTEP_CAPTIONER_LOAD` env var:
+
+| Mode | VRAM | Notes |
+|---|---|---|
+| `full` (default) | ~22 GB | fp16/bf16 |
+| `8bit` | ~11 GB | bitsandbytes `load_in_8bit` |
+| `4bit` | ~6–7 GB | bitsandbytes `nf4`, fp16 compute |
+
+```sh
+ACESTEP_CAPTIONER_LOAD=4bit timbre scan ./packs --backend ace-step
+```
+
+Quantization applies only to the language-model layers and is **CUDA-only** — it
+needs the `quant` extra (`bitsandbytes` + `accelerate`).
