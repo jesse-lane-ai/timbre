@@ -134,7 +134,9 @@ same HTTP API documented below. You can:
 - **delete** entries;
 - **import** audio via the OS file picker — *Import files…* (multi-select) or
   *Import folder…* (recursive) — to classify and add them to the library in one
-  step, with a progress bar.
+  step, with a progress bar;
+- **preview** any entry: click a row to slide open an inline waveform player
+  (play/pause, scrub by clicking the waveform).
 
 Manually-edited rows are flagged with a ✎ in the list.
 
@@ -165,6 +167,7 @@ CORS is wide open (`*`) — the server is meant to be run locally next to the ap
 | `GET` | `/backends` | available backend names |
 | `GET` | `/vocab` | taxonomy: kinds, per-kind categories, instruments |
 | `GET` | `/health` | `{"status": "ok"}` |
+| `GET` | `/audio?path=…` | a stored sample's raw audio bytes (for the UI player; only files present in the store) |
 | `POST` | `/classify?backend=…` | a `Tags` object (audio file as raw body) |
 
 ## Install

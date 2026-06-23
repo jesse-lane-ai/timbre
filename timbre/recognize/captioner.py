@@ -144,8 +144,8 @@ class AceCaptioner:
         try:
             import torch  # noqa: F401
             from transformers import (  # noqa: F401
-                AutoModelForMultimodalLM,
                 AutoProcessor,
+                Qwen2_5OmniForConditionalGeneration,
             )
         except ImportError as err:
             raise BadInputError(f"{CAPTIONER_INSTALL_HINT} (missing: {err.name})")
@@ -156,7 +156,10 @@ class AceCaptioner:
 
         try:
             import torch  # noqa: F401
-            from transformers import AutoModelForMultimodalLM, AutoProcessor
+            from transformers import (
+                AutoProcessor,
+                Qwen2_5OmniForConditionalGeneration,
+            )
         except ImportError as err:
             raise BadInputError(f"{CAPTIONER_INSTALL_HINT} (missing: {err.name})")
 
@@ -178,7 +181,7 @@ class AceCaptioner:
                 # later .to(); let device_map handle placement.
                 kwargs["quantization_config"] = quant_config
                 kwargs["device_map"] = self._device()
-            model = AutoModelForMultimodalLM.from_pretrained(model_id, **kwargs)
+            model = Qwen2_5OmniForConditionalGeneration.from_pretrained(model_id, **kwargs)
             if quant_config is None:
                 model.to(self._device())
             model.eval()

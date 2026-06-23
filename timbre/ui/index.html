@@ -71,6 +71,17 @@
   .empty { padding: 40px; text-align: center; color: var(--muted); }
   .import { display: flex; gap: 8px; margin: 12px 16px; }
   .import button { flex: 1; }
+  td.expander { width: 22px; text-align: center; color: var(--muted); user-select: none; }
+  tr.detail > td { padding: 0 10px 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  .player { display: flex; align-items: center; gap: 12px; padding: 10px 12px; background: #0e1014; border: 1px solid var(--line); border-radius: 8px; }
+  .player .play {
+    flex: 0 0 auto; width: 38px; height: 38px; border-radius: 50%; padding: 0;
+    background: var(--accent2); border: 1px solid var(--accent); color: var(--fg); font-size: 14px;
+  }
+  .player .play:hover { background: #34507a; }
+  .player canvas { flex: 1; height: 64px; width: 100%; display: block; cursor: pointer; border-radius: 4px; }
+  .player .time { flex: 0 0 auto; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 88px; text-align: right; }
+  .player .ploading { flex: 1; color: var(--muted); font-size: 12px; }
   .progress { margin: 0 16px 12px; display: none; }
   .progress.show { display: block; }
   .progress .bar { height: 6px; border-radius: 3px; background: var(--panel2); overflow: hidden; }
@@ -113,6 +124,7 @@
     <div class="tablewrap">
       <table>
         <thead><tr>
+          <th></th>
           <th data-sort="category">category</th>
           <th data-sort="kind">kind</th>
           <th data-sort="bpm">bpm</th>
@@ -148,6 +160,7 @@ let VOCAB = { kinds: [], categories_by_kind: {}, all_categories: [], instruments
 let ROWS = [];
 let SEL = null;
 let SORT = { key: "filename", dir: 1 };
+const EXPANDED = new Set();   // paths whose inline waveform player is open
 
 const $ = (id) => document.getElementById(id);
 
@@ -236,9 +249,11 @@ function renderRows() {
   const tb = $("rows"); tb.innerHTML = "";
   $("empty").style.display = ROWS.length ? "none" : "block";
   for (const r of ROWS) {
+    const open = EXPANDED.has(r.path);
     const tr = document.createElement("tr");
     if (SEL && SEL.path === r.path) tr.classList.add("sel");
     tr.innerHTML =
+      `<td class="expander">${open ? "▾" : "▸"}</td>` +
       `<td><span class="badge">${esc(r.category || "—")}</span></td>` +
       `<td><span class="badge kind">${esc(r.kind || "—")}</span></td>` +
       `<td>${r.bpm ?? "—"}</td>` +
@@ -248,13 +263,136 @@ function renderRows() {
         `${r.edited ? '<span class="edited-flag" title="manually edited">✎</span>' : ""}</td>`;
     tr.onclick = () => selectRow(r);
     tb.appendChild(tr);
+    if (open) {
+      const dtr = document.createElement("tr");
+      dtr.className = "detail";
+      const td = document.createElement("td");
+      td.colSpan = 7;
+      td.innerHTML = `<div class="player">
+        <button class="play" title="Play / pause">▶</button>
+        <canvas></canvas>
+        <span class="time">0:00 / 0:00</span></div>`;
+      dtr.appendChild(td);
+      tb.appendChild(dtr);
+      initPlayer(td.querySelector(".player"), r.path);
+    }
   }
 }
 
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 
 function selectRow(r) {
+  // whole-row click selects for editing and toggles the inline waveform player
+  if (EXPANDED.has(r.path)) EXPANDED.delete(r.path);
+  else EXPANDED.add(r.path);
+  stopAudio();
   SEL = r; renderRows(); renderEditor(r);
+}
+
+// --- inline waveform player ---------------------------------------------------
+let AUDIO = null;        // the single <audio> element currently in use
+let AUDIO_PATH = null;   // its source path
+const PEAKS_CACHE = new Map();  // path -> Float32Array of per-bucket peaks
+
+function stopAudio() {
+  if (AUDIO) { AUDIO.pause(); AUDIO = null; AUDIO_PATH = null; }
+}
+
+function fmtTime(s) {
+  if (!isFinite(s)) return "0:00";
+  const m = Math.floor(s / 60), sec = Math.floor(s % 60);
+  return m + ":" + String(sec).padStart(2, "0");
+}
+
+async function initPlayer(el, path) {
+  const canvas = el.querySelector("canvas");
+  const playBtn = el.querySelector(".play");
+  const timeEl = el.querySelector(".time");
+  const src = API + "/audio?path=" + encodeURIComponent(path);
+
+  const audio = new Audio();
+  audio.src = src;
+  audio.preload = "metadata";
+
+  let peaks = PEAKS_CACHE.get(path) || null;
+  let dur = 0;
+
+  function draw() {
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    if (!w || !h) return;
+    canvas.width = w * dpr; canvas.height = h * dpr;
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = "#0e1014"; ctx.fillRect(0, 0, w, h);
+    if (!peaks) return;
+    const mid = h / 2;
+    const playedX = dur ? (audio.currentTime / dur) * w : 0;
+    for (let x = 0; x < w; x++) {
+      const v = peaks[Math.floor((x / w) * peaks.length)] || 0;
+      const bh = Math.max(1, v * (h * 0.92));
+      ctx.fillStyle = x <= playedX ? "#7ee0a6" : "#3f8f63";
+      ctx.fillRect(x, mid - bh / 2, 1, bh);
+    }
+  }
+
+  async function loadPeaks() {
+    if (peaks) { draw(); return; }
+    el.querySelector(".time").textContent = "loading…";
+    try {
+      const res = await fetch(src);
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const buf = await res.arrayBuffer();
+      const AC = window.AudioContext || window.webkitAudioContext;
+      const ctx = new AC();
+      const decoded = await ctx.decodeAudioData(buf);
+      ctx.close();
+      const ch = decoded.getChannelData(0);
+      const BUCKETS = 600;
+      const step = Math.floor(ch.length / BUCKETS) || 1;
+      const out = new Float32Array(BUCKETS);
+      let max = 0;
+      for (let i = 0; i < BUCKETS; i++) {
+        let peak = 0;
+        for (let j = 0; j < step; j++) { const a = Math.abs(ch[i * step + j] || 0); if (a > peak) peak = a; }
+        out[i] = peak; if (peak > max) max = peak;
+      }
+      if (max > 0) for (let i = 0; i < BUCKETS; i++) out[i] /= max;  // normalize
+      peaks = out; PEAKS_CACHE.set(path, out);
+    } catch (e) {
+      timeEl.textContent = "—";
+      el.querySelector("canvas").replaceWith(Object.assign(document.createElement("div"),
+        { className: "ploading", textContent: "couldn't load audio: " + e.message }));
+      return;
+    }
+    draw();
+  }
+
+  audio.addEventListener("loadedmetadata", () => { dur = audio.duration; timeEl.textContent = "0:00 / " + fmtTime(dur); });
+  audio.addEventListener("timeupdate", () => { timeEl.textContent = fmtTime(audio.currentTime) + " / " + fmtTime(dur); draw(); });
+  audio.addEventListener("ended", () => { playBtn.textContent = "▶"; draw(); });
+
+  playBtn.onclick = (ev) => {
+    ev.stopPropagation();
+    if (AUDIO && AUDIO !== audio) stopAudio();
+    if (audio.paused) {
+      AUDIO = audio; AUDIO_PATH = path;
+      audio.play().then(() => playBtn.textContent = "⏸").catch(e => toast(e.message, true));
+    } else {
+      audio.pause(); playBtn.textContent = "▶";
+    }
+  };
+
+  canvas.onclick = (ev) => {
+    ev.stopPropagation();
+    if (!dur) return;
+    const rect = canvas.getBoundingClientRect();
+    audio.currentTime = ((ev.clientX - rect.left) / rect.width) * dur;
+    draw();
+  };
+
+  loadPeaks();
 }
 
 function catOptionsFor(kind) {

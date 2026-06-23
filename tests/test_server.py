@@ -69,6 +69,28 @@ def test_health(server):
     assert status == 200 and body["data"]["status"] == "ok"
 
 
+def test_audio_served_only_for_stored_files(server, tmp_path):
+    import numpy as np
+    import soundfile as sf
+
+    wav = tmp_path / "snare.wav"
+    sf.write(str(wav), (np.random.randn(2205) * 0.2).astype("float32"), 22050)
+    raw = wav.read_bytes()
+    q = "?path=" + urllib.parse.quote(str(wav))
+
+    # not in the store yet -> 404, no arbitrary file read
+    with pytest.raises(urllib.error.HTTPError) as ei:
+        urllib.request.urlopen(server + "/audio" + q)
+    assert ei.value.code == 404
+
+    # register it, then it streams byte-for-byte
+    _req(server, "/tag", "POST", {"path": str(wav), "category": "snare", "kind": "one-shot"})
+    with urllib.request.urlopen(server + "/audio" + q) as r:
+        assert r.status == 200
+        assert r.headers["Content-Type"] == "audio/wav"
+        assert r.read() == raw
+
+
 def test_tag_write_read_delete_round_trip(server):
     p = "/abs/example/kick_01.wav"
     # create-or-update

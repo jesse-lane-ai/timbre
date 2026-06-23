@@ -103,6 +103,39 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    _AUDIO_CTYPE = {
+        ".wav": "audio/wav", ".aif": "audio/aiff", ".aiff": "audio/aiff",
+        ".flac": "audio/flac", ".ogg": "audio/ogg", ".mp3": "audio/mpeg",
+    }
+
+    def _send_audio(self, p: str | None) -> None:
+        """Stream a sample's bytes so the UI can render/play its waveform.
+
+        Only files that have a row in the store are served — this is a local
+        tool, but we still don't want it to be an arbitrary-file-read endpoint."""
+        if not p:
+            self._send(400, {"ok": False, "error": "missing ?path="})
+            return
+        if get(p) is None:
+            self._send(404, {"ok": False, "error": f"no stored entry for: {p}"})
+            return
+        fp = Path(p).expanduser()
+        if not fp.is_file():
+            self._send(404, {"ok": False, "error": f"file not found on disk: {p}"})
+            return
+        try:
+            body = fp.read_bytes()
+        except OSError as e:
+            self._send(500, {"ok": False, "error": f"could not read {p}: {e}"})
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", self._AUDIO_CTYPE.get(fp.suffix.lower(), "application/octet-stream"))
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Accept-Ranges", "none")
+        self._cors()
+        self.end_headers()
+        self.wfile.write(body)
+
     def _cors(self) -> None:
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
@@ -129,6 +162,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, {"ok": True, "data": _vocab()})
         elif path == "/health":
             self._send(200, {"ok": True, "data": {"status": "ok"}})
+        elif path == "/audio":
+            self._send_audio(qs.get("path", [None])[0])
         elif path == "/tags":
             self._guard(lambda: query(**_filters_from_qs(qs)), transform=lambda r: [t.to_dict() for t in r])
         elif path == "/tag":
