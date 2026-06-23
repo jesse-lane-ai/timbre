@@ -71,6 +71,15 @@ def db_path() -> Path:
     return default_db_path()
 
 
+def blob_dir() -> Path:
+    """Where browser-imported audio is cached so it can be previewed later.
+
+    Browser file pickers don't expose real filesystem paths, so uploaded bytes
+    are stored here (content-addressed) and this becomes the entry's canonical
+    path. Lives next to the DB so it moves with `db.path`."""
+    return db_path().parent / "blobs"
+
+
 def effective() -> dict[str, Any]:
     """The fully-resolved settings actually in effect (env + file + defaults)."""
     return {"db": {"enabled": db_enabled(), "path": str(db_path())}}

@@ -494,20 +494,12 @@ async function classifyAll(files) {
   for (const file of files) {
     pLabel.textContent = `Classifying ${file.name}  (${done + 1}/${files.length})`;
     try {
-      const tags = await api("/classify?backend=heuristic", {
+      // /import classifies AND caches the uploaded bytes server-side, keyed by
+      // content hash, so the entry has a real on-disk path the player can read
+      // back. (Browsers never expose the picked file's real path, so we can't
+      // point the library at the original location.)
+      const saved = await api("/import?backend=heuristic", {
         method: "POST", headers: { "X-Filename": file.name }, body: file,
-      });
-      // /classify is stateless; persist it so it joins the library. Only send
-      // editable fields — the store rejects managed ones (e.g. `edited`), and the
-      // browser can't supply a real filesystem path, so key it by relative path.
-      const saved = await api("/tag", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          path: file._relpath || tags.path || file.name,
-          kind: tags.kind, category: tags.category, instruments: tags.instruments,
-          key: tags.key, scale: tags.scale, bpm: tags.bpm,
-          duration: tags.duration, caption: tags.caption, backend: tags.backend,
-        }),
       });
       mergeRow(saved); last = saved; added++;
     } catch (err) {

@@ -138,6 +138,12 @@ same HTTP API documented below. You can:
 - **preview** any entry: click a row to slide open an inline waveform player
   (play/pause, scrub by clicking the waveform).
 
+Browsers don't expose a picked file's real filesystem path, so imported audio is
+cached server-side (content-addressed, under `<data-dir>/blobs/`) and that cached
+copy becomes the entry's path — which is what makes the waveform preview work for
+imports. Entries created by `timbre scan` keep their real on-disk paths and
+preview directly. (Identical content imported twice dedupes to one entry.)
+
 Manually-edited rows are flagged with a ✎ in the list.
 
 ## HTTP server
@@ -168,7 +174,8 @@ CORS is wide open (`*`) — the server is meant to be run locally next to the ap
 | `GET` | `/vocab` | taxonomy: kinds, per-kind categories, instruments |
 | `GET` | `/health` | `{"status": "ok"}` |
 | `GET` | `/audio?path=…` | a stored sample's raw audio bytes (for the UI player; only files present in the store) |
-| `POST` | `/classify?backend=…` | a `Tags` object (audio file as raw body) |
+| `POST` | `/classify?backend=…` | a `Tags` object (audio file as raw body; stateless, not persisted) |
+| `POST` | `/import?backend=…` | classify + cache the bytes + persist; returns the stored `Tags` (path points at the cached blob) |
 
 ## Install
 

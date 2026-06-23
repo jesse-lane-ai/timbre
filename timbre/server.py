@@ -25,12 +25,14 @@ All responses use the ``{"ok": bool, "data"|"error": ...}`` envelope.
 
 from __future__ import annotations
 
+import hashlib
 import json
+from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import classify, delete, get, list_backends, query, update
+from . import classify, config, delete, get, list_backends, query, store, update
 from .errors import TimbreError
 from .recognize.types import (
     INSTRUMENT_VOCAB,
@@ -42,6 +44,32 @@ from .recognize.types import (
 
 _MAX_BYTES = 64 * 1024 * 1024  # 64 MB upload cap
 _UI_DIR = Path(__file__).parent / "ui"
+
+
+def _import_bytes(data: bytes, filename: str, backend: str):
+    """Classify uploaded audio and persist both the bytes and the verdict.
+
+    Browser uploads carry no real filesystem path, so we cache the bytes
+    content-addressed under :func:`config.blob_dir` and make that the entry's
+    canonical ``path`` — that way the UI's ``/audio`` preview can read it back.
+    Identical content re-imports to the same row (hash-keyed)."""
+    ext = Path(filename).suffix.lower() or ".wav"
+    digest = hashlib.sha1(data).hexdigest()
+    blobs = config.blob_dir()
+    blobs.mkdir(parents=True, exist_ok=True)
+    blob = blobs / f"{digest}{ext}"
+    if not blob.exists():
+        blob.write_bytes(data)
+
+    tags = classify(data, backend=backend, filename=filename)
+    tags = replace(tags, path=str(blob), filename=Path(filename).name)
+    con = store.open_db(str(config.db_path()))
+    try:
+        store.upsert(con, str(blob), blob.stat().st_mtime, tags)
+        con.commit()
+        return store.get(con, str(blob))
+    finally:
+        con.close()
 
 
 def _vocab() -> dict:
@@ -187,6 +215,8 @@ class _Handler(BaseHTTPRequestHandler):
         qs = parse_qs(parsed.query)
         if parsed.path == "/classify":
             self._handle_classify(qs)
+        elif parsed.path == "/import":
+            self._handle_import(qs)
         elif parsed.path == "/tag":
             self._handle_tag_write()
         else:
@@ -221,6 +251,19 @@ class _Handler(BaseHTTPRequestHandler):
         data = self.rfile.read(length)
         filename = self.headers.get("X-Filename") or "upload.wav"
         self._guard(lambda: classify(data, backend=backend, filename=filename), transform=lambda t: t.to_dict())
+
+    def _handle_import(self, qs: dict) -> None:
+        backend = qs.get("backend", ["heuristic"])[0]
+        length = int(self.headers.get("Content-Length", 0))
+        if length <= 0:
+            self._send(400, {"ok": False, "error": "empty body — POST the audio file as the request body"})
+            return
+        if length > _MAX_BYTES:
+            self._send(413, {"ok": False, "error": f"upload exceeds {_MAX_BYTES} bytes"})
+            return
+        data = self.rfile.read(length)
+        filename = self.headers.get("X-Filename") or "upload.wav"
+        self._guard(lambda: _import_bytes(data, filename, backend), transform=lambda t: t.to_dict())
 
     def _handle_tag_write(self) -> None:
         try:

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import threading
+from pathlib import Path
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -89,6 +90,39 @@ def test_audio_served_only_for_stored_files(server, tmp_path):
         assert r.status == 200
         assert r.headers["Content-Type"] == "audio/wav"
         assert r.read() == raw
+
+
+def test_import_caches_bytes_so_preview_works(server, tmp_path):
+    import io
+
+    import numpy as np
+    import soundfile as sf
+
+    buf = io.BytesIO()
+    sf.write(buf, (np.random.randn(2205) * 0.3).astype("float32"), 22050, format="WAV")
+    raw = buf.getvalue()
+
+    req = urllib.request.Request(
+        server + "/import?backend=heuristic", data=raw, method="POST",
+        headers={"X-Filename": "clap_77.wav"},
+    )
+    with urllib.request.urlopen(req) as r:
+        saved = json.loads(r.read())["data"]
+    # canonical path is a real on-disk blob, not the bare filename
+    assert saved["filename"] == "clap_77.wav"
+    assert saved["path"] != "clap_77.wav" and Path(saved["path"]).is_file()
+
+    # the preview endpoint can now read it back byte-for-byte
+    with urllib.request.urlopen(server + "/audio?path=" + urllib.parse.quote(saved["path"])) as r:
+        assert r.status == 200 and r.read() == raw
+
+    # identical content re-imports to the same row (hash-keyed)
+    with urllib.request.urlopen(urllib.request.Request(
+        server + "/import", data=raw, method="POST", headers={"X-Filename": "clap_77.wav"})) as r:
+        again = json.loads(r.read())["data"]
+    assert again["path"] == saved["path"]
+    _, listing = _get(server, "/tags")
+    assert sum(1 for t in listing["data"] if t["path"] == saved["path"]) == 1
 
 
 def test_tag_write_read_delete_round_trip(server):
