@@ -132,8 +132,9 @@ same HTTP API documented below. You can:
   the live taxonomy via `/vocab`) — saves mark the entry **edited** so it
   survives re-scans;
 - **delete** entries;
-- **drag-and-drop** an audio file onto the panel to classify it and add it to the
-  library in one step.
+- **import** audio via the OS file picker — *Import files…* (multi-select) or
+  *Import folder…* (recursive) — to classify and add them to the library in one
+  step, with a progress bar.
 
 Manually-edited rows are flagged with a ✎ in the list.
 
