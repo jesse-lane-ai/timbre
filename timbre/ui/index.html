@@ -69,11 +69,8 @@
   .actions { display: flex; gap: 8px; margin-top: 6px; }
   .actions button { flex: 1; }
   .empty { padding: 40px; text-align: center; color: var(--muted); }
-  .drop {
-    margin: 12px 16px; border: 1.5px dashed var(--line); border-radius: 8px;
-    padding: 14px; text-align: center; color: var(--muted); font-size: 13px;
-  }
-  .drop.over { border-color: var(--accent); color: var(--fg); background: var(--panel2); }
+  .import { display: flex; gap: 8px; margin: 12px 16px; }
+  .import button { flex: 1; }
   .progress { margin: 0 16px 12px; display: none; }
   .progress.show { display: block; }
   .progress .bar { height: 6px; border-radius: 3px; background: var(--panel2); overflow: hidden; }
@@ -129,7 +126,12 @@
     </div>
   </div>
   <aside id="aside">
-    <div class="drop" id="drop">Drop audio files or a folder here to classify &amp; add them to the library.</div>
+    <div class="import">
+      <button class="primary" id="import-files">Import files…</button>
+      <button id="import-folder">Import folder…</button>
+      <input type="file" id="file-input" accept=".wav,.aif,.aiff,.flac,.ogg,.mp3" multiple hidden>
+      <input type="file" id="folder-input" webkitdirectory hidden>
+    </div>
     <div class="progress" id="progress">
       <div class="bar"><i id="progress-fill"></i></div>
       <div class="label" id="progress-label"></div>
@@ -327,46 +329,24 @@ function mergeRow(saved) {
   if (i >= 0) ROWS[i] = saved; else ROWS.unshift(saved);
 }
 
-// drag-and-drop classify (one or more files, or a dropped folder)
-const drop = $("drop");
+// import via the OS file picker (one or more files, or a whole folder)
 const AUDIO_RE = /\.(wav|aiff?|flac|ogg|mp3)$/i;
+const fileInput = $("file-input"), folderInput = $("folder-input");
 
-["dragenter","dragover"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("over"); }));
-["dragleave"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("over"); }));
-drop.addEventListener("drop", async e => {
-  e.preventDefault(); drop.classList.remove("over");
-  const items = e.dataTransfer.items;
-  let files = [];
-  if (items && items.length && items[0].webkitGetAsEntry) {
-    // walk entries so a dropped folder is expanded recursively
-    const entries = [...items].map(i => i.webkitGetAsEntry()).filter(Boolean);
-    for (const ent of entries) files.push(...await walkEntry(ent));
-  } else {
-    files = [...(e.dataTransfer.files || [])];
-  }
+$("import-files").onclick = () => fileInput.click();
+$("import-folder").onclick = () => folderInput.click();
+
+async function onPicked(input) {
+  let files = [...(input.files || [])];
+  // a folder pick exposes webkitRelativePath; carry it so entries keep structure
+  for (const f of files) if (f.webkitRelativePath) f._relpath = f.webkitRelativePath;
   files = files.filter(f => AUDIO_RE.test(f.name) && !f.name.startsWith("._"));
-  if (!files.length) { toast("No audio files in drop", true); return; }
+  input.value = "";  // allow re-picking the same selection
+  if (!files.length) { toast("No audio files selected", true); return; }
   await classifyAll(files);
-});
-
-// Recursively collect File objects from a (webkit) FileSystemEntry.
-function walkEntry(entry, prefix = "") {
-  return new Promise(resolve => {
-    if (entry.isFile) {
-      entry.file(f => { f._relpath = prefix + f.name; resolve([f]); }, () => resolve([]));
-    } else if (entry.isDirectory) {
-      const reader = entry.createReader();
-      const all = [];
-      const readBatch = () => reader.readEntries(async ents => {
-        if (!ents.length) {
-          const nested = await Promise.all(all.map(en => walkEntry(en, prefix + entry.name + "/")));
-          resolve(nested.flat());
-        } else { all.push(...ents); readBatch(); }
-      }, () => resolve([]));
-      readBatch();
-    } else resolve([]);
-  });
 }
+fileInput.onchange = () => onPicked(fileInput);
+folderInput.onchange = () => onPicked(folderInput);
 
 const progress = $("progress"), pFill = $("progress-fill"), pLabel = $("progress-label");
 
