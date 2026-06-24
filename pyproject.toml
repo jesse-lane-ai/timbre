@@ -37,8 +37,11 @@ ace-step = [
     "transformers>=4.52,<5",
     "pillow>=9",
 ]
-# `ACESTEP_CAPTIONER_LOAD=8bit|4bit` — in-flight quantization for the ace-step
-# captioner. CUDA-only (bitsandbytes needs an NVIDIA GPU).
+# In-flight quantization for the ace-step captioner (`ACESTEP_CAPTIONER_LOAD`,
+# default `4bit`). Strongly recommended on CUDA: the full ~22 GB load maxes a
+# 24 GB card and (notably under WSL2) spills to system RAM, ~15x slower; 4bit
+# (~7 GB) stays resident. CUDA-only (bitsandbytes needs an NVIDIA GPU) — when
+# absent, the captioner auto-falls back to full precision with a warning.
 quant = [
     "bitsandbytes>=0.43",
     "accelerate>=0.30",

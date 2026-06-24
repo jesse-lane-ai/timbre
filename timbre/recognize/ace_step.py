@@ -35,7 +35,57 @@ NAME = "ace-step"
 
 # A caption hit on the taxonomy is a strong but text-derived signal.
 CAPTION_CONFIDENCE = 0.7
+# A category inferred indirectly from a matched instrument (no category word in
+# the caption) — weaker than a direct hit, stronger than the neutral catch-all.
+INSTRUMENT_CATEGORY_CONFIDENCE = 0.5
+NEUTRAL_CATEGORY_CONFIDENCE = 0.3
 INSTRUMENT_CAP = 4
+
+# Neutral catch-all when nothing in the caption names a category (present in
+# every kind's vocab) — far better than defaulting to the first list entry,
+# which is the arbitrary, confidently-wrong "kick"/"drum".
+NEUTRAL_CATEGORY = "fx"
+
+# Recover a category from a matched instrument when the caption names an
+# instrument ("cowbell", "piano") but no category word ("perc", "keys"). Each
+# instrument maps to candidate categories in preference order; the first that's
+# valid for the file's kind wins. Keeps a struck cowbell out of "kick".
+_INSTRUMENT_TO_CATEGORY: dict[str, tuple[str, ...]] = {
+    "kick": ("kick", "drum"), "snare": ("snare", "drum"),
+    "clap": ("clap", "perc", "drum"), "snap": ("snap", "perc", "drum"),
+    "rimshot": ("rim", "perc", "drum"), "hihat": ("hat", "drum"),
+    "open hat": ("hat", "drum"), "crash": ("crash", "perc", "drum"),
+    "ride": ("ride", "perc", "drum"), "cymbal": ("hat", "perc", "drum"),
+    "tom": ("tom", "perc", "drum"),
+    "conga": ("perc", "drum"), "bongo": ("perc", "drum"), "shaker": ("perc", "drum"),
+    "tambourine": ("perc", "drum"), "cowbell": ("perc", "drum"),
+    "woodblock": ("perc", "drum"), "clave": ("perc", "drum"),
+    "triangle": ("perc", "drum"), "djembe": ("perc", "drum"),
+    "timbale": ("perc", "drum"), "agogo": ("perc", "drum"), "cabasa": ("perc", "drum"),
+    "drums": ("drum", "perc"), "percussion": ("perc", "drum"),
+    "bass": ("bass",), "808": ("808", "bass"), "sub": ("sub", "bass"),
+    "reese": ("reese", "bass"),
+    "lead": ("lead", "melody", "melodic"), "pad": ("pad", "melodic"),
+    "pluck": ("pluck", "melody", "melodic"), "arp": ("arp", "melodic"),
+    "synth": ("stab", "lead", "synth", "melody", "melodic"),
+    "keys": ("keys", "melody", "melodic"), "piano": ("piano", "keys", "melodic"),
+    "organ": ("keys", "melodic"), "bell": ("perc", "melody", "melodic"),
+    "guitar": ("guitar", "melodic"), "strings": ("strings", "melodic"),
+    "violin": ("strings", "melodic"), "cello": ("strings", "melodic"),
+    "brass": ("brass", "melodic"), "trumpet": ("brass", "melodic"),
+    "sax": ("brass", "melodic"), "flute": ("melody", "melodic"),
+    "choir": ("vocal",), "vocal": ("vocal",), "fx": ("fx",),
+}
+
+
+def _category_from_instruments(instruments: list[str], cats: tuple[str, ...]) -> str | None:
+    """First category (in instrument preference order) that's valid for the
+    file's kind, or None if no matched instrument maps into ``cats``."""
+    for ins in instruments:
+        for cand in _INSTRUMENT_TO_CATEGORY.get(ins, ()):
+            if cand in cats:
+                return cand
+    return None
 
 
 def _batch_size() -> int:
@@ -204,7 +254,8 @@ class AceStepRecognizer:
         analytics.emit({
             "event": "load", "total_files": total, "already_loaded": already,
             "model_load_seconds": round(time.time() - t_load, 2) if not already else 0.0,
-            "load_mode": self._captioner._load_mode(), "vram_mib": _gpu_mem_mib(),
+            "load_mode": getattr(self._captioner, "_effective_mode", None) or self._captioner._load_mode(),
+            "vram_mib": _gpu_mem_mib(),
         })
 
         results: list[Recognition | None] = [None] * total
@@ -296,9 +347,18 @@ class AceStepRecognizer:
 
         cats = _categories(item.kind)
         scored_cats = _score_categories(caption, cats)
-        category = scored_cats[0][0] if scored_cats else cats[0]
         instruments = _match_vocab(caption, INSTRUMENT_VOCAB)[:INSTRUMENT_CAP]
-        confidence = CAPTION_CONFIDENCE if scored_cats else 0.3
+        if scored_cats:
+            category, confidence = scored_cats[0][0], CAPTION_CONFIDENCE
+        else:
+            # No category word in the caption: recover it from a matched
+            # instrument if we can, else a neutral catch-all — never the
+            # arbitrary first list entry ("kick").
+            derived = _category_from_instruments(instruments, cats)
+            if derived is not None:
+                category, confidence = derived, INSTRUMENT_CATEGORY_CONFIDENCE
+            else:
+                category, confidence = NEUTRAL_CATEGORY, NEUTRAL_CATEGORY_CONFIDENCE
         counts["captioned"] += 1
 
         self._progress(i, total, item.filename, f"-> {category}")

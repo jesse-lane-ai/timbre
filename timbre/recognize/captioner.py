@@ -79,6 +79,7 @@ class AceCaptioner:
     def __init__(self) -> None:
         self._model = None
         self._processor = None
+        self._effective_mode = None  # set by _resolve_load to the mode actually used
 
     def _model_id(self) -> str:
         return os.environ.get("ACESTEP_CAPTIONER_MODEL", DEFAULT_CAPTIONER_MODEL)
@@ -117,16 +118,47 @@ class AceCaptioner:
             return 96
 
     def _load_mode(self) -> str:
-        """In-flight quantization mode: ``full`` (default, fp16/bf16),
-        ``8bit``, or ``4bit`` — the last two shrink the ~22 GB captioner to
-        roughly ~11 GB / ~6–7 GB of VRAM via bitsandbytes, quantizing only the
-        LLM tower (the audio encoder stays full precision)."""
-        mode = os.environ.get("ACESTEP_CAPTIONER_LOAD", "full").lower()
+        """In-flight quantization mode: ``4bit`` (default), ``8bit``, or
+        ``full`` (fp16/bf16). The quantized modes shrink the ~22 GB captioner to
+        roughly ~7 GB / ~11 GB of VRAM via bitsandbytes, quantizing only the LLM
+        tower (the audio encoder stays full precision).
+
+        4bit is the default deliberately: the full ~22 GB load maxes a 24 GB
+        card, and (notably under WSL2) the driver then spills to system RAM,
+        collapsing inference throughput ~15x (~60 s/file vs ~4 s/file measured
+        on a 3090). 4bit stays comfortably resident with near-identical caption
+        quality for coarse tagging. Falls back to full when its deps are absent
+        — see :meth:`_resolve_load`."""
+        mode = os.environ.get("ACESTEP_CAPTIONER_LOAD", "4bit").lower()
         if mode not in ("full", "8bit", "4bit"):
             raise BadInputError(
                 f"ACESTEP_CAPTIONER_LOAD must be 'full', '8bit', or '4bit' (got '{mode}')"
             )
         return mode
+
+    def _resolve_load(self):
+        """Resolve ``(mode, quant_config)``, degrading a quantized *default* to
+        full precision when bitsandbytes/accelerate are missing rather than
+        hard-failing — so the tool still runs out of the box. An *explicit*
+        ``ACESTEP_CAPTIONER_LOAD`` is honoured strictly (still errors if its deps
+        are absent). Records the effective mode on ``self`` for analytics."""
+        mode = self._load_mode()
+        explicit = "ACESTEP_CAPTIONER_LOAD" in os.environ
+        try:
+            quant_config = self._quant_config(mode)
+        except BadInputError:
+            if explicit or mode == "full":
+                raise
+            print(
+                f"[ace-step] '{mode}' load needs bitsandbytes + accelerate "
+                f"(not installed) — falling back to full precision. Install them "
+                f"(pip install bitsandbytes accelerate) for a ~15x speedup, or "
+                f"set ACESTEP_CAPTIONER_LOAD=full to silence this.",
+                file=sys.stderr,
+            )
+            mode, quant_config = "full", None
+        self._effective_mode = mode
+        return mode, quant_config
 
     def _quant_config(self, mode: str):
         """Build a bitsandbytes ``BitsAndBytesConfig`` for the quantized modes,
@@ -182,8 +214,7 @@ class AceCaptioner:
             raise BadInputError(f"{CAPTIONER_INSTALL_HINT} (missing: {err.name})")
 
         model_id = self._model_id()
-        mode = self._load_mode()
-        quant_config = self._quant_config(mode)
+        mode, quant_config = self._resolve_load()
         try:
           # Keep transformers' load-time chatter (incl. auto_docstring prints and
           # progress bars) off stdout so the CLI's JSON envelope stays clean.
