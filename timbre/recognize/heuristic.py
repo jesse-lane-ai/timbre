@@ -39,6 +39,24 @@ HIGH_ROLLOFF_HZ = 7000.0
 # Zero-crossing rate above this is "noisy" (snare/clap/hat); below is "tonal".
 HIGH_ZCR = 0.15
 
+# ZCR below this reads as a tonal (non-noisy) hit — the reliable kick/bass
+# discriminator. Centroid alone is unreliable here: a click transient pushes a
+# kick's centroid up past LOW_CENTROID_HZ, but its ZCR stays near zero.
+TONAL_ZCR = 0.03
+# Upper centroid bound for the tonal-low (kick/bass) band; brighter tonal hits
+# (bells, plucks) fall through to be handled elsewhere / escalated.
+LOWMID_CENTROID_HZ = 2500.0
+
+# Vocal one-shot gate. A voiced tone only reads as `vocal` when it sits in the
+# formant-relevant mid band AND its pitch actually moves (real vocals have
+# vibrato/inflection) — a flat, perfectly-stable synth tone is a stab/melody,
+# not a vocal. (The old `formant_strength` proxy was non-discriminating — every
+# sound scored ~12-21 against a 0.6 threshold — so it labeled everything voiced
+# as vocal; it's no longer used here.)
+VOCAL_CENTROID_MIN = 300.0
+VOCAL_CENTROID_MAX = 3500.0
+VOCAL_PITCH_MOVEMENT = 0.1
+
 # log10(seconds) attack time at/under this is "instant" (drum hits).
 FAST_ATTACK_LOG = -1.5  # ~32ms
 
@@ -76,11 +94,13 @@ def _classify_oneshot(cache: audio_analysis._AnalysisCache) -> str:
     if centroid >= HIGH_CENTROID_HZ and rolloff >= HIGH_ROLLOFF_HZ and zcr >= HIGH_ZCR:
         return "hat"
 
-    # Low/boomy + tonal + percussive -> kick / 808.
-    if centroid <= LOW_CENTROID_HZ and zcr < HIGH_ZCR and fast_attack:
-        if voiced_ratio > 0.4 and pitch_stability < 0.05:
-            return "808"
-        return "kick"
+    # Tonal (low ZCR) in the low/low-mid band -> kick / bass. ZCR, not centroid,
+    # gates this: a kick's click transient can push its centroid well above
+    # LOW_CENTROID_HZ while its ZCR stays near zero.
+    if zcr < TONAL_ZCR and centroid <= LOWMID_CENTROID_HZ:
+        if fast_attack or is_percussive:
+            return "kick"
+        return "bass"
 
     # Mid-bright + noisy + percussive -> snare/clap.
     if is_percussive and zcr >= HIGH_ZCR and fast_attack:
@@ -88,12 +108,20 @@ def _classify_oneshot(cache: audio_analysis._AnalysisCache) -> str:
             return "clap"
         return "snare"
 
-    # Tonal, stable pitch, voiced -> melodic stab or vocal one-shot.
-    if voiced_ratio > 0.5:
-        if cache.formant_strength() > 0.6:
-            return "vocal"
-        if pitch_stability < 0.05:
-            return "stab" if fast_attack else "melody"
+    # Vocal one-shot: voiced, in the formant-range mid band, with real pitch
+    # movement, and not a percussive hit. (See VOCAL_* constants — the formant
+    # proxy used before didn't discriminate, so this leans on band + inflection.)
+    if (
+        voiced_ratio > 0.5
+        and VOCAL_CENTROID_MIN <= centroid <= VOCAL_CENTROID_MAX
+        and pitch_stability >= VOCAL_PITCH_MOVEMENT
+        and not is_percussive
+    ):
+        return "vocal"
+
+    # Tonal, stable single pitch -> melodic stab (fast) or sustained melody.
+    if voiced_ratio > 0.5 and pitch_stability < 0.05:
+        return "stab" if fast_attack else "melody"
 
     # Low/boomy but not fast-attack -> sustained bass.
     if centroid <= LOW_CENTROID_HZ:

@@ -60,12 +60,16 @@ def test_classify_oneshot_kick():
     assert _classify_oneshot(cache) == "kick"
 
 
-def test_classify_oneshot_808_when_pitched():
+def test_classify_oneshot_pitched_low_hit_is_kick():
+    # A pitched, stable, low hit folds to `kick`: real kicks score voiced≈1.0
+    # and pitch_stability≈0.0 too, so the heuristic can't separate 808/sub from
+    # kick by audio features alone — that distinction is left to the filename
+    # cue or the model backend.
     cache = _FakeCache(
         spectral_centroid=150.0, zero_crossing_rate=0.02, log_attack_time=-2.0,
         voiced_ratio=0.6, pitch_stability=0.02,
     )
-    assert _classify_oneshot(cache) == "808"
+    assert _classify_oneshot(cache) == "kick"
 
 
 def test_classify_oneshot_hat():
