@@ -88,20 +88,47 @@ def probe(path: str, backend: str, as_json: bool):
     _emit(d, human, as_json)
 
 
+# Categories the heuristic falls back to when it can't actually place a file:
+# the one-shot ("fx") and loop ("full") catch-all buckets. A file in one of
+# these with no instruments is effectively unclassified, so it's worth the model.
+_CATCHALL_CATEGORIES = {"fx", "full"}
+
+
+def _needs_escalation(tags) -> bool:
+    """A file the primary backend couldn't really place — worth spending the
+    heavier escalation model on: no category, or only a catch-all bucket, and no
+    instrument tags to go on either way."""
+    if getattr(tags, "instruments", None):
+        return False
+    category = getattr(tags, "category", None)
+    return not category or category in _CATCHALL_CATEGORIES
+
+
 @cli.command("scan")
 @click.argument("folder")
 @backend_option
+@click.option("--escalate", default=None, metavar="BACKEND",
+              help="Progressive scan: after the primary backend, re-classify only the "
+                   "files it left with no category/instruments using this heavier backend "
+                   "(e.g. --escalate ace-step).")
 @click.option("--db", "db_path", default=None, help="Override the DB path for this scan (default: configured DB).")
 @click.option("--no-db", is_flag=True, default=False, help="Don't persist this scan (DB is on by default).")
 @click.option("--rescan", is_flag=True, default=False, help="Re-classify every file, ignoring cached rows.")
 @json_option
-def scan(folder: str, backend: str, db_path: str | None, no_db: bool, rescan: bool, as_json: bool):
+def scan(folder: str, backend: str, escalate: str | None, db_path: str | None,
+         no_db: bool, rescan: bool, as_json: bool):
     """Recursively classify every audio file under FOLDER.
 
     Results persist to the configured sqlite DB by default; on a later scan,
     files whose mtime is unchanged (and were last classified with the same
     backend) are served from the cache instead of re-analyzed. --rescan forces a
     full re-run; --no-db disables persistence for this scan.
+
+    With --escalate the scan is progressive: every file is classified by the
+    primary --backend first (cheap), then only those it couldn't place (no
+    category and no instruments) are re-run through the heavier escalation
+    backend. The expensive model is spent solely on the gaps. Both tiers' rows
+    are cached, so a re-scan re-runs neither.
     """
     root = Path(folder).expanduser().resolve()
     if not root.is_dir():
@@ -115,6 +142,9 @@ def scan(folder: str, backend: str, db_path: str | None, no_db: bool, rescan: bo
 
     from . import config, store
 
+    # A cached row is fresh for a progressive scan if it came from either tier.
+    accept = {backend, escalate} if escalate else None
+
     con = None
     effective_db: str | None = None
     if not no_db:
@@ -122,61 +152,86 @@ def scan(folder: str, backend: str, db_path: str | None, no_db: bool, rescan: bo
         if effective_db:
             con = store.open_db(effective_db)
 
+    import os
+
+    quiet = as_json or os.environ.get("MENDELL_QUIET") == "1"
+
+    def _mtime(p: Path):
+        try:
+            return p.stat().st_mtime
+        except OSError:
+            return None
+
+    def _classify(paths: list[Path], be: str, label: str) -> list:
+        """Run a backend over ``paths`` with per-file stderr progress."""
+        if not paths:
+            return []
+        if not quiet:
+            click.echo(f"  {label} ({len(paths)} files, backend={be})", err=True)
+        n_todo = len(paths)
+        done = [0]
+
+        def _progress(item, _rec):
+            if quiet:
+                return
+            done[0] += 1
+            name = getattr(item, "filename", None) or getattr(item, "path", "?")
+            click.echo(f"    [{done[0]}/{n_todo}] {name}", err=True)
+
+        return classify_many([str(p) for p in paths], backend=be, on_result=_progress)
+
     try:
         results: dict[str, object] = {}  # abspath -> Tags
         to_classify: list[Path] = []
+        to_escalate: list[Path] = []  # cached-by-primary-but-unplaced → escalate only
         cached_n = 0
         for p in files:
             ap = str(p.resolve())
             if con is not None and not rescan:
-                try:
-                    mtime = p.stat().st_mtime
-                except OSError:
-                    mtime = None
-                hit = store.get_fresh(con, ap, mtime, backend)
+                hit = store.get_fresh(con, ap, _mtime(p), backend, accept_backends=accept)
                 if hit is not None:
-                    results[ap] = hit
-                    cached_n += 1
+                    # An unplaced row still on the primary backend hasn't been
+                    # escalated yet — send it straight to the model (its cheap
+                    # heuristic pass is already done), but only escalate primary
+                    # rows so files the model itself gave up on aren't re-run.
+                    if escalate and _needs_escalation(hit) and hit.backend == backend:
+                        results[ap] = hit
+                        to_escalate.append(p)
+                    else:
+                        results[ap] = hit
+                        cached_n += 1
                     continue
             to_classify.append(p)
 
-        # Progress to stderr — never touches the JSON envelope on stdout.
-        # Silence with --json or MENDELL_QUIET=1.
-        import os
-
-        quiet = as_json or os.environ.get("MENDELL_QUIET") == "1"
         if not quiet:
-            click.echo(
-                f"scanning {root}: {len(files)} audio files "
-                f"({cached_n} cached, {len(to_classify)} to classify, backend={backend})",
-                err=True,
-            )
+            plan = f"{len(files)} audio files ({cached_n} cached, {len(to_classify)} to classify"
+            plan += f", backend={backend}"
+            if escalate:
+                plan += f", escalate={escalate}"
+            click.echo(f"scanning {root}: {plan})", err=True)
 
-        if to_classify:
-            n_todo = len(to_classify)
-            done = [0]
+        # --- tier 1: primary backend ---
+        for p, t in zip(to_classify, _classify(to_classify, backend, "tier 1")):
+            ap = str(p.resolve())
+            results[ap] = t
+            if escalate and _needs_escalation(t):
+                to_escalate.append(p)
+            elif con is not None:
+                store.upsert(con, ap, _mtime(p), t)
+        if con is not None:
+            con.commit()  # persist tier 1 before the slower, failable tier 2
 
-            def _progress(item, _rec):
-                if quiet:
-                    return
-                done[0] += 1
-                name = getattr(item, "filename", None) or getattr(item, "path", "?")
-                click.echo(f"  [{done[0]}/{n_todo}] {name}", err=True)
-
-            fresh = classify_many(
-                [str(p) for p in to_classify], backend=backend, on_result=_progress
-            )
-            for p, t in zip(to_classify, fresh):
+        # --- tier 2: escalate only the files the primary couldn't place ---
+        if escalate and to_escalate:
+            esc = _classify(to_escalate, escalate, f"tier 2 (escalate {escalate})")
+            for p, t in zip(to_escalate, esc):
                 ap = str(p.resolve())
                 results[ap] = t
                 if con is not None:
-                    try:
-                        mtime = p.stat().st_mtime
-                    except OSError:
-                        mtime = None
-                    store.upsert(con, ap, mtime, t)
-            if con is not None:
-                con.commit()
+                    store.upsert(con, ap, _mtime(p), t)
+
+        if con is not None:
+            con.commit()
     except TimbreError as e:
         _fail(e, as_json)
         return
@@ -188,7 +243,10 @@ def scan(folder: str, backend: str, db_path: str | None, no_db: bool, rescan: bo
     data = [t.to_dict() for t in tags]
     human = "\n".join(f"{t.category or '?':<10} {t.kind:<9} {t.filename}" for t in tags) or "(no audio files)"
     if effective_db:
-        human += f"\n\n{len(to_classify)} classified, {cached_n} from cache → {effective_db}"
+        summary = f"{len(to_classify)} classified, {cached_n} from cache"
+        if escalate:
+            summary += f", {len(to_escalate)} escalated to {escalate}"
+        human += f"\n\n{summary} → {effective_db}"
     _emit(data, human, as_json)
 
 

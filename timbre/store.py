@@ -56,16 +56,27 @@ def open_db(path: str | Path) -> sqlite3.Connection:
     return con
 
 
-def get_fresh(con: sqlite3.Connection, abspath: str, mtime: float | None, backend: str) -> Tags | None:
+def get_fresh(
+    con: sqlite3.Connection,
+    abspath: str,
+    mtime: float | None,
+    backend: str,
+    accept_backends: "set[str] | None" = None,
+) -> Tags | None:
     """Return the cached Tags for ``abspath`` iff it should NOT be re-classified:
     either it was manually edited (edits survive normal scans; only --rescan
-    overwrites), or its mtime and backend are unchanged. Else None."""
+    overwrites), or its mtime and backend are unchanged. Else None.
+
+    ``accept_backends`` widens the backend match to any label in the set — used
+    by a progressive scan, where a file may be cached under the primary backend
+    (heuristic) or the escalation backend (e.g. ace-step) and either is fresh."""
     row = con.execute("SELECT * FROM tags WHERE path = ?", (abspath,)).fetchone()
     if row is None:
         return None
     if row["edited"]:
         return _row_to_tags(row)
-    if mtime is None or row["backend"] != backend or row["mtime"] != mtime:
+    backend_ok = row["backend"] in accept_backends if accept_backends else row["backend"] == backend
+    if mtime is None or not backend_ok or row["mtime"] != mtime:
         return None
     return _row_to_tags(row)
 
