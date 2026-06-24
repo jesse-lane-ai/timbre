@@ -30,9 +30,45 @@ from .recognize.heuristic import HeuristicRecognizer
 Source = "str | Path | bytes"
 
 # A file with no loop/one-shot/recording name cue but a long duration is treated
-# as a `recording` (full take / field capture). Loops rarely exceed this; short
-# unnamed files stay `unknown`.
+# as a `recording` (full take / field capture). Loops rarely exceed this.
 RECORDING_MIN_SECONDS = 30.0
+
+# `kind` fallback tuning, used when the filename carries no explicit cue:
+#   - at/under ONESHOT_MAX_SECONDS a file is a single hit (one-shot);
+#   - a mid-length file whose duration is (within tolerance) a whole number of
+#     bars at its name-derived tempo is a loop;
+#   - a drum-category name is a weak one-shot prior.
+ONESHOT_MAX_SECONDS = 1.2
+BAR_ALIGN_TOL = 0.06            # ±6% of a bar counts as "a whole number of bars"
+_LOOP_BAR_COUNTS = (1, 2, 4, 8, 16)
+_DRUM_CATEGORIES = {"kick", "snare", "clap", "hat", "tom", "crash", "ride", "rim", "perc"}
+
+
+def _resolve_kind(name_kind, category, bpm, duration) -> str:
+    """Decide `kind` (loop / one-shot / recording / unknown), cheap-first.
+
+    Mirrors the library's `_detect_kind`: an explicit filename cue wins; then a
+    very short clip is a one-shot, a long one a recording, and a mid-length clip
+    that lands on a whole number of bars at its tempo is a loop. A drum-category
+    name is a final weak one-shot prior, else an honest `unknown`.
+    """
+    if name_kind is not None:
+        return name_kind
+    if duration is not None:
+        if duration <= ONESHOT_MAX_SECONDS:
+            return "one-shot"
+        if duration >= RECORDING_MIN_SECONDS:
+            return "recording"
+        if bpm:
+            bar_seconds = 4.0 * 60.0 / bpm
+            if bar_seconds > 0:
+                bars = duration / bar_seconds
+                nearest = min(_LOOP_BAR_COUNTS, key=lambda n: abs(n - bars))
+                if abs(bars - nearest) <= BAR_ALIGN_TOL * nearest:
+                    return "loop"
+    if category in _DRUM_CATEGORIES:
+        return "one-shot"
+    return "unknown"
 
 
 @dataclass(frozen=True)
@@ -112,9 +148,7 @@ def classify_many(
             ni = classify_from_names(name_src)
             name_infos.append(ni)
             duration = audio_analysis.probe_duration_seconds(str(real))
-            kind = ni["kind"]
-            if kind is None:
-                kind = "recording" if (duration or 0) >= RECORDING_MIN_SECONDS else "unknown"
+            kind = _resolve_kind(ni["kind"], ni.get("category"), ni.get("bpm"), duration)
             probes.append(FileProbe(path=real, filename=Path(display).name, duration=duration, kind=kind))
 
         # --- content pass ---
