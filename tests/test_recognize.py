@@ -190,7 +190,7 @@ def test_ace_step_backend_missing_dependency_raises_actionable_error(monkeypatch
         return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", fake_import)
-    with pytest.raises(BadInputError, match=r"pip install transformers"):
+    with pytest.raises(BadInputError, match=r"pip install 'timbre\[ace-step\]'"):
         get_recognizer("ace-step")
 
 
