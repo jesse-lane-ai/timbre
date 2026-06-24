@@ -131,6 +131,8 @@ same HTTP API documented below. You can:
 - **edit** any entry's tags inline (kind/category dropdowns are populated from
   the live taxonomy via `/vocab`) — saves mark the entry **edited** so it
   survives re-scans;
+- **select** rows (per-row checkbox or the header select-all) and **copy their
+  metadata** to the clipboard as JSON, CSV, or just paths;
 - **delete** entries;
 - **import** audio via the OS file picker — *Import files…* (multi-select) or
   *Import folder…* (recursive) — to classify and add them to the library in one

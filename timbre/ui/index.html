@@ -73,6 +73,15 @@
   .import button { flex: 1; }
   .import-note { margin: 0 16px 12px; font-size: 11.5px; line-height: 1.5; color: var(--muted); }
   .import-note code { background: var(--panel2); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; font-size: 11px; }
+  .toolbar {
+    display: flex; align-items: center; gap: 10px; padding: 7px 16px;
+    border-bottom: 1px solid var(--line); background: var(--panel);
+  }
+  .toolbar #selcount { font-size: 12px; }
+  .checkcol { width: 30px; text-align: center; }
+  .checkcol input { cursor: pointer; }
+  tbody tr.checked { background: #1f2a3a; }
+  tbody tr.checked.sel { background: var(--accent2); }
   td.expander { width: 22px; text-align: center; color: var(--muted); user-select: none; }
   td.preview { width: 156px; }
   .rowprev { display: flex; align-items: center; gap: 8px; cursor: default; }
@@ -129,11 +138,23 @@
   <div class="field"><label>&nbsp;</label><button class="ghost" id="reset">Reset</button></div>
 </div>
 
+<div class="toolbar">
+  <span id="selcount" class="muted">No rows selected</span>
+  <button id="copy-meta" disabled>Copy metadata</button>
+  <select id="copy-fmt" title="Clipboard format">
+    <option value="json">JSON</option>
+    <option value="csv">CSV</option>
+    <option value="paths">Paths</option>
+  </select>
+  <button class="ghost" id="clear-sel" disabled>Clear selection</button>
+</div>
+
 <main>
   <div class="left">
     <div class="tablewrap">
       <table>
         <thead><tr>
+          <th class="checkcol"><input type="checkbox" id="check-all" title="Select all"></th>
           <th></th>
           <th>preview</th>
           <th data-sort="category">category</th>
@@ -178,6 +199,7 @@ let ROWS = [];
 let SEL = null;
 let SORT = { key: "filename", dir: 1 };
 const EXPANDED = new Set();   // paths whose inline waveform player is open
+const SELECTED = new Set();   // paths checked for "Copy metadata"
 
 const $ = (id) => document.getElementById(id);
 
@@ -245,6 +267,9 @@ function filtersToQuery() {
 async function refresh() {
   try {
     ROWS = await api("/tags" + (filtersToQuery() ? "?" + filtersToQuery() : ""));
+    // keep selection consistent with what's shown/copyable after a filter change
+    const present = new Set(ROWS.map(r => r.path));
+    for (const p of [...SELECTED]) if (!present.has(p)) SELECTED.delete(p);
     renderRows();
   } catch (e) { toast(e.message, true); }
 }
@@ -271,7 +296,9 @@ function renderRows() {
     const playing = AUDIO && AUDIO_PATH === r.path && !AUDIO.paused;
     const tr = document.createElement("tr");
     if (SEL && SEL.path === r.path) tr.classList.add("sel");
+    if (SELECTED.has(r.path)) tr.classList.add("checked");
     tr.innerHTML =
+      `<td class="checkcol"><input type="checkbox" class="rowcheck" ${SELECTED.has(r.path) ? "checked" : ""}></td>` +
       `<td class="expander">${open ? "▾" : "▸"}</td>` +
       `<td class="preview"><div class="rowprev">` +
         `<button class="play" data-path="${esc(r.path)}" title="Play / pause">${playing ? "⏸" : "▶"}</button>` +
@@ -284,6 +311,14 @@ function renderRows() {
       `<td class="file" title="${esc(r.path || "")}">${esc(r.filename || "")}` +
         `${r.edited ? '<span class="edited-flag" title="manually edited">✎</span>' : ""}</td>`;
     tr.onclick = () => selectRow(r);
+    // checkbox: toggle selection without expanding the row
+    const cb = tr.querySelector(".rowcheck");
+    cb.onclick = (e) => {
+      e.stopPropagation();
+      if (cb.checked) SELECTED.add(r.path); else SELECTED.delete(r.path);
+      tr.classList.toggle("checked", cb.checked);
+      updateSelUI();
+    };
     // inline preview: play button + waveform thumbnail (don't select/expand)
     const prev = tr.querySelector(".rowprev");
     prev.onclick = (e) => e.stopPropagation();
@@ -296,7 +331,7 @@ function renderRows() {
       const dtr = document.createElement("tr");
       dtr.className = "detail";
       const td = document.createElement("td");
-      td.colSpan = 8;
+      td.colSpan = 9;
       td.innerHTML = `<div class="player">
         <button class="play" data-path="${esc(r.path)}" title="Play / pause">${playing ? "⏸" : "▶"}</button>
         <canvas></canvas>
@@ -306,9 +341,68 @@ function renderRows() {
       initPlayer(td.querySelector(".player"), r.path);
     }
   }
+  updateSelUI();
 }
 
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+
+// --- row selection + copy metadata -------------------------------------------
+function updateSelUI() {
+  const n = SELECTED.size, total = ROWS.length;
+  $("selcount").textContent = n ? `${n} selected` : "No rows selected";
+  $("copy-meta").disabled = n === 0;
+  $("clear-sel").disabled = n === 0;
+  const all = $("check-all");
+  const shownSelected = ROWS.filter(r => SELECTED.has(r.path)).length;
+  all.checked = total > 0 && shownSelected === total;
+  all.indeterminate = shownSelected > 0 && shownSelected < total;
+}
+
+function selectedRows() {
+  // preserve current sort order; fall back to selection order isn't tracked
+  return ROWS.filter(r => SELECTED.has(r.path));
+}
+
+function metadataText(rows, fmt) {
+  if (fmt === "paths") return rows.map(r => r.path || r.filename || "").join("\n");
+  if (fmt === "csv") {
+    const cols = ["filename", "path", "kind", "category", "instruments", "key", "scale", "bpm", "duration", "confidence", "backend", "caption", "edited"];
+    const cell = (v) => {
+      if (v == null) v = "";
+      else if (Array.isArray(v)) v = v.join("; ");
+      v = String(v);
+      return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+    };
+    return [cols.join(","), ...rows.map(r => cols.map(c => cell(r[c])).join(","))].join("\n");
+  }
+  // json (default) — array, or a bare object for a single row
+  const data = rows.length === 1 ? rows[0] : rows;
+  return JSON.stringify(data, null, 2);
+}
+
+async function copyToClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    // fallback for non-secure contexts (http://) where the Clipboard API is blocked
+    const ta = document.createElement("textarea");
+    ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select();
+    let ok = false;
+    try { ok = document.execCommand("copy"); } catch { ok = false; }
+    ta.remove();
+    return ok;
+  }
+}
+
+async function copyMetadata() {
+  const rows = selectedRows();
+  if (!rows.length) return;
+  const text = metadataText(rows, $("copy-fmt").value);
+  const ok = await copyToClipboard(text);
+  toast(ok ? `Copied ${rows.length} row${rows.length === 1 ? "" : "s"} to clipboard` : "Couldn't copy to clipboard", !ok);
+}
 
 function selectRow(r) {
   // whole-row click selects for editing and toggles the expanded player
@@ -618,6 +712,15 @@ $("reset").onclick = () => {
   refresh();
 };
 $("filters").addEventListener("keydown", e => { if (e.key === "Enter") refresh(); });
+
+// toolbar: select-all, copy metadata, clear selection
+$("check-all").onclick = (e) => {
+  if (e.target.checked) ROWS.forEach(r => SELECTED.add(r.path));
+  else ROWS.forEach(r => SELECTED.delete(r.path));
+  renderRows();
+};
+$("copy-meta").onclick = copyMetadata;
+$("clear-sel").onclick = () => { SELECTED.clear(); renderRows(); };
 
 (async function init() {
   await checkHealth();
