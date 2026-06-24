@@ -32,10 +32,32 @@ Config (env):
 from __future__ import annotations
 
 import contextlib
+import logging
 import os
 import sys
 
 from ..errors import BadInputError, EngineError
+
+
+class _DropSystemPromptWarning(logging.Filter):
+    """Drop Qwen2.5-Omni's "System prompt modified, audio output may not work"
+    warning. We deliberately replace its verbose default system prompt and
+    disable the talker (we only want the text caption, never audio), so the
+    warning is pure noise emitted on every batch."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return "System prompt modified" not in record.getMessage()
+
+
+_warning_filter_installed = False
+
+
+def _silence_system_prompt_warning() -> None:
+    """Install the filter once on the root logger (where the model logs it)."""
+    global _warning_filter_installed
+    if not _warning_filter_installed:
+        logging.getLogger().addFilter(_DropSystemPromptWarning())
+        _warning_filter_installed = True
 
 
 def _stdout_to_stderr():
@@ -201,6 +223,7 @@ class AceCaptioner:
         if self._model is not None:
             return self._model, self._processor
 
+        _silence_system_prompt_warning()
         try:
             # Importing the qwen2_5_omni model module triggers transformers'
             # auto_docstring print()s to stdout — keep them off the JSON channel.
