@@ -93,15 +93,44 @@ def probe(path: str, backend: str, as_json: bool):
 # these with no instruments is effectively unclassified, so it's worth the model.
 _CATCHALL_CATEGORIES = {"fx", "full"}
 
+# Pitched / melodic / full-context categories the audio heuristic is unreliable
+# at — its spectral features are tuned for percussion, so a *guessed* (not
+# name-confirmed) verdict here is worth a model second opinion. Drum categories
+# (kick/snare/hat/clap/perc/...) are deliberately excluded: the heuristic nails
+# those, so they stay local and fast.
+_PITCHED_CATEGORIES = {
+    # one-shot bass + melodic/synth + acoustic + vocal
+    "bass", "sub", "808", "reese",
+    "stab", "melody", "lead", "pad", "pluck", "arp", "chord", "keys", "piano",
+    "organ", "guitar", "strings", "brass", "vocal",
+    # loop-only labels
+    "melodic", "synth",
+}
+
 
 def _needs_escalation(tags) -> bool:
-    """A file the primary backend couldn't really place — worth spending the
-    heavier escalation model on: no category, or only a catch-all bucket, and no
-    instrument tags to go on either way."""
+    """A file the primary backend couldn't reliably place — worth spending the
+    heavier escalation model on. True when, with no instrument tags to go on:
+      * there's no category or only a catch-all bucket ("fx"/"full"), or
+      * the category is a pitched/melodic one the audio heuristic merely
+        *guessed* — i.e. the filename itself yields no category, so the verdict
+        came from the (percussion-tuned, unreliable-on-pitched) audio pass
+        rather than a name cue we'd trust.
+    """
     if getattr(tags, "instruments", None):
         return False
     category = getattr(tags, "category", None)
-    return not category or category in _CATCHALL_CATEGORIES
+    if not category or category in _CATCHALL_CATEGORIES:
+        return True
+    if category in _PITCHED_CATEGORIES:
+        # Trust a name-derived pitched category; escalate an audio-guessed one.
+        # The name pass is cheap (no audio) and the fuser lets a name category
+        # win, so "the name yields a category" == "this verdict is name-sourced".
+        from .names import classify_from_names
+
+        ni = classify_from_names(getattr(tags, "path", None) or getattr(tags, "filename", "") or "")
+        return ni.get("category") is None
+    return False
 
 
 @cli.command("scan")
