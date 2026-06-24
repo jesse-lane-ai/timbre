@@ -26,9 +26,16 @@ clap = [
     "laion-clap>=1.1",
 ]
 # `--backend ace-step` — local ACE-Step captioner (Qwen2.5-Omni multimodal).
+# transformers is capped below 5: the 5.x image-processor registry dropped the
+# `Qwen2VLImageProcessor` string mapping the acestep-captioner checkpoint needs,
+# so its processor fails to load. pillow + torchvision are pulled because the
+# Qwen2.5-Omni processor instantiates image/video sub-components even though the
+# captioning path only uses audio.
 ace-step = [
     "torch>=2.0",
-    "transformers>=4.44",
+    "torchvision>=0.15",
+    "transformers>=4.52,<5",
+    "pillow>=9",
 ]
 # `ACESTEP_CAPTIONER_LOAD=8bit|4bit` — in-flight quantization for the ace-step
 # captioner. CUDA-only (bitsandbytes needs an NVIDIA GPU).

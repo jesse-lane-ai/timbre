@@ -74,6 +74,14 @@
   .import-note { margin: 0 16px 12px; font-size: 11.5px; line-height: 1.5; color: var(--muted); }
   .import-note code { background: var(--panel2); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; font-size: 11px; }
   td.expander { width: 22px; text-align: center; color: var(--muted); user-select: none; }
+  td.preview { width: 156px; }
+  .rowprev { display: flex; align-items: center; gap: 8px; cursor: default; }
+  .rowprev .play {
+    flex: 0 0 auto; width: 26px; height: 26px; border-radius: 50%; padding: 0; line-height: 1;
+    font-size: 11px; background: var(--accent2); border: 1px solid var(--accent); color: var(--fg);
+  }
+  .rowprev .play:hover { background: #34507a; }
+  .rowprev canvas { width: 116px; height: 28px; display: block; border-radius: 3px; cursor: pointer; }
   tr.detail > td { padding: 0 10px 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
   .player { display: flex; align-items: center; gap: 12px; padding: 10px 12px; background: #0e1014; border: 1px solid var(--line); border-radius: 8px; }
   .player .play {
@@ -127,6 +135,7 @@
       <table>
         <thead><tr>
           <th></th>
+          <th>preview</th>
           <th data-sort="category">category</th>
           <th data-sort="kind">kind</th>
           <th data-sort="bpm">bpm</th>
@@ -255,13 +264,18 @@ function sortRows() {
 function renderRows() {
   sortRows();
   const tb = $("rows"); tb.innerHTML = "";
+  VIEWS = [];  // tbody is rebuilt; drop stale canvas registrations
   $("empty").style.display = ROWS.length ? "none" : "block";
   for (const r of ROWS) {
     const open = EXPANDED.has(r.path);
+    const playing = AUDIO && AUDIO_PATH === r.path && !AUDIO.paused;
     const tr = document.createElement("tr");
     if (SEL && SEL.path === r.path) tr.classList.add("sel");
     tr.innerHTML =
       `<td class="expander">${open ? "▾" : "▸"}</td>` +
+      `<td class="preview"><div class="rowprev">` +
+        `<button class="play" data-path="${esc(r.path)}" title="Play / pause">${playing ? "⏸" : "▶"}</button>` +
+        `<canvas></canvas></div></td>` +
       `<td><span class="badge">${esc(r.category || "—")}</span></td>` +
       `<td><span class="badge kind">${esc(r.kind || "—")}</span></td>` +
       `<td>${r.bpm ?? "—"}</td>` +
@@ -270,16 +284,23 @@ function renderRows() {
       `<td class="file" title="${esc(r.path || "")}">${esc(r.filename || "")}` +
         `${r.edited ? '<span class="edited-flag" title="manually edited">✎</span>' : ""}</td>`;
     tr.onclick = () => selectRow(r);
+    // inline preview: play button + waveform thumbnail (don't select/expand)
+    const prev = tr.querySelector(".rowprev");
+    prev.onclick = (e) => e.stopPropagation();
+    prev.querySelector(".play").onclick = (e) => { e.stopPropagation(); playPath(r.path); };
+    const thumb = prev.querySelector("canvas");
+    thumb.onclick = (e) => { e.stopPropagation(); playPath(r.path); };
+    mountWave(thumb, r.path);
     tb.appendChild(tr);
     if (open) {
       const dtr = document.createElement("tr");
       dtr.className = "detail";
       const td = document.createElement("td");
-      td.colSpan = 7;
+      td.colSpan = 8;
       td.innerHTML = `<div class="player">
-        <button class="play" title="Play / pause">▶</button>
+        <button class="play" data-path="${esc(r.path)}" title="Play / pause">${playing ? "⏸" : "▶"}</button>
         <canvas></canvas>
-        <span class="time">0:00 / 0:00</span></div>`;
+        <span class="time" data-path="${esc(r.path)}">0:00 / 0:00</span></div>`;
       dtr.appendChild(td);
       tb.appendChild(dtr);
       initPlayer(td.querySelector(".player"), r.path);
@@ -290,21 +311,25 @@ function renderRows() {
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 
 function selectRow(r) {
-  // whole-row click selects for editing and toggles the inline waveform player
+  // whole-row click selects for editing and toggles the expanded player
   if (EXPANDED.has(r.path)) EXPANDED.delete(r.path);
   else EXPANDED.add(r.path);
-  stopAudio();
   SEL = r; renderRows(); renderEditor(r);
 }
 
-// --- inline waveform player ---------------------------------------------------
-let AUDIO = null;        // the single <audio> element currently in use
-let AUDIO_PATH = null;   // its source path
-const PEAKS_CACHE = new Map();  // path -> Float32Array of per-bucket peaks
+// --- waveform players (inline thumbnail + expanded) ---------------------------
+// One shared <audio> plays at a time. Peaks/durations are decoded once per path
+// and cached; every mounted canvas is registered in VIEWS so the playhead can be
+// animated across both the row thumbnail and the expanded player at once.
+let AUDIO = null;          // the single HTMLAudioElement currently in use
+let AUDIO_PATH = null;     // its source path
+let RAF = 0;               // playhead animation handle
+let VIEWS = [];            // [{path, canvas}] canvases mounted in the DOM
+const PEAKS_CACHE = new Map();    // path -> Float32Array of per-bucket peaks
+const PEAKS_PROMISE = new Map();  // path -> in-flight decode (dedupes concurrent loads)
+const DUR_CACHE = new Map();      // path -> duration seconds
 
-function stopAudio() {
-  if (AUDIO) { AUDIO.pause(); AUDIO = null; AUDIO_PATH = null; }
-}
+const srcFor = (path) => API + "/audio?path=" + encodeURIComponent(path);
 
 function fmtTime(s) {
   if (!isFinite(s)) return "0:00";
@@ -312,95 +337,147 @@ function fmtTime(s) {
   return m + ":" + String(sec).padStart(2, "0");
 }
 
-async function initPlayer(el, path) {
+function currentFrac(path) {
+  return (AUDIO && AUDIO_PATH === path && AUDIO.duration) ? AUDIO.currentTime / AUDIO.duration : 0;
+}
+
+async function peaksFor(path) {
+  if (PEAKS_CACHE.has(path)) return PEAKS_CACHE.get(path);
+  if (PEAKS_PROMISE.has(path)) return PEAKS_PROMISE.get(path);
+  const job = (async () => {
+    const res = await fetch(srcFor(path));
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const buf = await res.arrayBuffer();
+    const AC = window.AudioContext || window.webkitAudioContext;
+    const ctx = new AC();
+    const decoded = await ctx.decodeAudioData(buf);
+    ctx.close();
+    DUR_CACHE.set(path, decoded.duration);
+    const ch = decoded.getChannelData(0);
+    const BUCKETS = 600;
+    const step = Math.floor(ch.length / BUCKETS) || 1;
+    const out = new Float32Array(BUCKETS);
+    let max = 0;
+    for (let i = 0; i < BUCKETS; i++) {
+      let peak = 0;
+      for (let j = 0; j < step; j++) { const a = Math.abs(ch[i * step + j] || 0); if (a > peak) peak = a; }
+      out[i] = peak; if (peak > max) max = peak;
+    }
+    if (max > 0) for (let i = 0; i < BUCKETS; i++) out[i] /= max;  // normalize
+    PEAKS_CACHE.set(path, out); PEAKS_PROMISE.delete(path);
+    return out;
+  })();
+  PEAKS_PROMISE.set(path, job);
+  return job;
+}
+
+function drawWave(canvas, peaks, frac) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  if (!w || !h) return;
+  canvas.width = w * dpr; canvas.height = h * dpr;
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = "#0e1014"; ctx.fillRect(0, 0, w, h);
+  if (!peaks) return;
+  const mid = h / 2, playedX = (frac || 0) * w;
+  for (let x = 0; x < w; x++) {
+    const v = peaks[Math.floor((x / w) * peaks.length)] || 0;
+    const bh = Math.max(1, v * (h * 0.9));
+    ctx.fillStyle = x <= playedX ? "#7ee0a6" : "#3f8f63";
+    ctx.fillRect(x, mid - bh / 2, 1, bh);
+  }
+}
+
+// Decode a thumbnail's audio only when it scrolls into view, so a big library
+// doesn't fetch+decode every file up front.
+const waveObserver = new IntersectionObserver((entries) => {
+  for (const e of entries) {
+    if (!e.isIntersecting) continue;
+    const canvas = e.target, path = canvas._wavePath;
+    waveObserver.unobserve(canvas);
+    peaksFor(path)
+      .then(p => drawWave(canvas, p, currentFrac(path)))
+      .catch(() => drawWave(canvas, null, 0));  // leave the empty bg on error
+  }
+}, { rootMargin: "300px" });
+
+// register a canvas for playhead updates and lazy peak loading
+function mountWave(canvas, path) {
+  canvas._wavePath = path;
+  VIEWS.push({ path, canvas });
+  if (PEAKS_CACHE.has(path)) drawWave(canvas, PEAKS_CACHE.get(path), currentFrac(path));
+  else waveObserver.observe(canvas);
+}
+
+function redrawPath(path) {
+  const p = PEAKS_CACHE.get(path);
+  if (!p) return;
+  for (const v of VIEWS) if (v.path === path) drawWave(v.canvas, p, currentFrac(path));
+}
+
+function refreshButtons() {
+  document.querySelectorAll("button.play[data-path]").forEach(b => {
+    const playing = AUDIO && AUDIO_PATH === b.dataset.path && !AUDIO.paused;
+    b.textContent = playing ? "⏸" : "▶";
+  });
+}
+
+function updateTimes() {
+  document.querySelectorAll(".time[data-path]").forEach(el => {
+    const path = el.dataset.path, total = DUR_CACHE.get(path) || 0;
+    const cur = AUDIO_PATH === path && AUDIO ? AUDIO.currentTime : 0;
+    el.textContent = fmtTime(cur) + " / " + fmtTime(total);
+  });
+}
+
+function tick() {
+  redrawPath(AUDIO_PATH);
+  updateTimes();
+  RAF = (AUDIO && !AUDIO.paused) ? requestAnimationFrame(tick) : 0;
+}
+
+function stopAudio() {
+  if (AUDIO) AUDIO.pause();
+  AUDIO = null; AUDIO_PATH = null;
+  if (RAF) { cancelAnimationFrame(RAF); RAF = 0; }
+}
+
+async function playPath(path) {
+  // toggle if it's already the active sound
+  if (AUDIO_PATH === path && AUDIO) {
+    if (AUDIO.paused) { try { await AUDIO.play(); } catch (e) { toast(e.message, true); return; } }
+    else AUDIO.pause();
+    refreshButtons();
+    if (AUDIO && !AUDIO.paused && !RAF) RAF = requestAnimationFrame(tick);
+    return;
+  }
+  const prev = AUDIO_PATH;
+  stopAudio();
+  AUDIO = new Audio(srcFor(path)); AUDIO_PATH = path;
+  AUDIO.addEventListener("ended", () => { refreshButtons(); redrawPath(path); });
+  try { await AUDIO.play(); } catch (e) { toast(e.message, true); stopAudio(); return; }
+  refreshButtons();
+  if (prev) redrawPath(prev);  // clear the old playhead
+  if (!RAF) RAF = requestAnimationFrame(tick);
+}
+
+async function seekPath(path, frac) {
+  if (AUDIO_PATH !== path || !AUDIO) await playPath(path);
+  if (AUDIO && AUDIO.duration) { AUDIO.currentTime = frac * AUDIO.duration; redrawPath(path); updateTimes(); }
+}
+
+// expanded player: play/pause button, full-width waveform with click-to-seek
+function initPlayer(el, path) {
   const canvas = el.querySelector("canvas");
-  const playBtn = el.querySelector(".play");
-  const timeEl = el.querySelector(".time");
-  const src = API + "/audio?path=" + encodeURIComponent(path);
-
-  const audio = new Audio();
-  audio.src = src;
-  audio.preload = "metadata";
-
-  let peaks = PEAKS_CACHE.get(path) || null;
-  let dur = 0;
-
-  function draw() {
-    const dpr = window.devicePixelRatio || 1;
-    const w = canvas.clientWidth, h = canvas.clientHeight;
-    if (!w || !h) return;
-    canvas.width = w * dpr; canvas.height = h * dpr;
-    const ctx = canvas.getContext("2d");
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, w, h);
-    ctx.fillStyle = "#0e1014"; ctx.fillRect(0, 0, w, h);
-    if (!peaks) return;
-    const mid = h / 2;
-    const playedX = dur ? (audio.currentTime / dur) * w : 0;
-    for (let x = 0; x < w; x++) {
-      const v = peaks[Math.floor((x / w) * peaks.length)] || 0;
-      const bh = Math.max(1, v * (h * 0.92));
-      ctx.fillStyle = x <= playedX ? "#7ee0a6" : "#3f8f63";
-      ctx.fillRect(x, mid - bh / 2, 1, bh);
-    }
-  }
-
-  async function loadPeaks() {
-    if (peaks) { draw(); return; }
-    el.querySelector(".time").textContent = "loading…";
-    try {
-      const res = await fetch(src);
-      if (!res.ok) throw new Error("HTTP " + res.status);
-      const buf = await res.arrayBuffer();
-      const AC = window.AudioContext || window.webkitAudioContext;
-      const ctx = new AC();
-      const decoded = await ctx.decodeAudioData(buf);
-      ctx.close();
-      const ch = decoded.getChannelData(0);
-      const BUCKETS = 600;
-      const step = Math.floor(ch.length / BUCKETS) || 1;
-      const out = new Float32Array(BUCKETS);
-      let max = 0;
-      for (let i = 0; i < BUCKETS; i++) {
-        let peak = 0;
-        for (let j = 0; j < step; j++) { const a = Math.abs(ch[i * step + j] || 0); if (a > peak) peak = a; }
-        out[i] = peak; if (peak > max) max = peak;
-      }
-      if (max > 0) for (let i = 0; i < BUCKETS; i++) out[i] /= max;  // normalize
-      peaks = out; PEAKS_CACHE.set(path, out);
-    } catch (e) {
-      timeEl.textContent = "—";
-      el.querySelector("canvas").replaceWith(Object.assign(document.createElement("div"),
-        { className: "ploading", textContent: "couldn't load audio: " + e.message }));
-      return;
-    }
-    draw();
-  }
-
-  audio.addEventListener("loadedmetadata", () => { dur = audio.duration; timeEl.textContent = "0:00 / " + fmtTime(dur); });
-  audio.addEventListener("timeupdate", () => { timeEl.textContent = fmtTime(audio.currentTime) + " / " + fmtTime(dur); draw(); });
-  audio.addEventListener("ended", () => { playBtn.textContent = "▶"; draw(); });
-
-  playBtn.onclick = (ev) => {
-    ev.stopPropagation();
-    if (AUDIO && AUDIO !== audio) stopAudio();
-    if (audio.paused) {
-      AUDIO = audio; AUDIO_PATH = path;
-      audio.play().then(() => playBtn.textContent = "⏸").catch(e => toast(e.message, true));
-    } else {
-      audio.pause(); playBtn.textContent = "▶";
-    }
-  };
-
-  canvas.onclick = (ev) => {
-    ev.stopPropagation();
-    if (!dur) return;
+  el.querySelector(".play").onclick = (e) => { e.stopPropagation(); playPath(path); };
+  canvas.onclick = (e) => {
+    e.stopPropagation();
     const rect = canvas.getBoundingClientRect();
-    audio.currentTime = ((ev.clientX - rect.left) / rect.width) * dur;
-    draw();
+    seekPath(path, (e.clientX - rect.left) / rect.width);
   };
-
-  loadPeaks();
+  mountWave(canvas, path);
+  peaksFor(path).then(updateTimes).catch(() => {});
 }
 
 function catOptionsFor(kind) {

@@ -135,8 +135,9 @@ same HTTP API documented below. You can:
 - **import** audio via the OS file picker — *Import files…* (multi-select) or
   *Import folder…* (recursive) — to classify and add them to the library in one
   step, with a progress bar;
-- **preview** any entry: click a row to slide open an inline waveform player
-  (play/pause, scrub by clicking the waveform).
+- **preview** any entry: every row has an inline play button + waveform
+  thumbnail, and clicking a row slides open a larger player (play/pause, scrub by
+  clicking the waveform). Thumbnails decode lazily as they scroll into view.
 
 Browsers don't expose a picked file's real filesystem path, so imported audio is
 cached server-side (content-addressed, under `<data-dir>/blobs/`) and that cached

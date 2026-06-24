@@ -31,9 +31,23 @@ Config (env):
 
 from __future__ import annotations
 
+import contextlib
 import os
+import sys
 
 from ..errors import BadInputError, EngineError
+
+
+def _stdout_to_stderr():
+    """Redirect stdout to stderr for the enclosed block.
+
+    transformers' ``auto_docstring`` decorator unconditionally ``print()``s
+    "🚨 … not documented" lines to *stdout* when it imports certain model
+    modules (e.g. qwen2_5_omni). Our CLI puts the ``--json`` envelope on stdout,
+    so that stray output would corrupt the JSON an agent parses. Routing it to
+    stderr keeps stdout clean while still surfacing the messages in a terminal.
+    """
+    return contextlib.redirect_stdout(sys.stderr)
 
 DEFAULT_CAPTIONER_MODEL = "ACE-Step/acestep-captioner"
 # Prompt for the captioner. The model card documents "Describe this audio in
@@ -52,8 +66,8 @@ def _caption_prompt() -> str:
     return os.environ.get("ACESTEP_CAPTIONER_PROMPT", DEFAULT_CAPTION_PROMPT)
 
 CAPTIONER_INSTALL_HINT = (
-    "the ACE-Step captioner needs 'transformers' + 'torch'. Install them with: "
-    "pip install transformers torch  (the model "
+    "the ACE-Step captioner needs torch + transformers (<5). Install them with: "
+    "pip install 'timbre[ace-step]'  (the model "
     "'ACE-Step/acestep-captioner' downloads on first use; override with "
     "ACESTEP_CAPTIONER_MODEL)."
 )
@@ -142,11 +156,12 @@ class AceCaptioner:
         """Verify the import-time dependencies are present *without* loading or
         downloading the model — used at backend-selection time to fail fast."""
         try:
-            import torch  # noqa: F401
-            from transformers import (  # noqa: F401
-                AutoProcessor,
-                Qwen2_5OmniForConditionalGeneration,
-            )
+            with _stdout_to_stderr():
+                import torch  # noqa: F401
+                from transformers import (  # noqa: F401
+                    AutoProcessor,
+                    Qwen2_5OmniForConditionalGeneration,
+                )
         except ImportError as err:
             raise BadInputError(f"{CAPTIONER_INSTALL_HINT} (missing: {err.name})")
 
@@ -155,11 +170,14 @@ class AceCaptioner:
             return self._model, self._processor
 
         try:
-            import torch  # noqa: F401
-            from transformers import (
-                AutoProcessor,
-                Qwen2_5OmniForConditionalGeneration,
-            )
+            # Importing the qwen2_5_omni model module triggers transformers'
+            # auto_docstring print()s to stdout — keep them off the JSON channel.
+            with _stdout_to_stderr():
+                import torch  # noqa: F401
+                from transformers import (
+                    AutoProcessor,
+                    Qwen2_5OmniForConditionalGeneration,
+                )
         except ImportError as err:
             raise BadInputError(f"{CAPTIONER_INSTALL_HINT} (missing: {err.name})")
 
@@ -167,6 +185,9 @@ class AceCaptioner:
         mode = self._load_mode()
         quant_config = self._quant_config(mode)
         try:
+          # Keep transformers' load-time chatter (incl. auto_docstring prints and
+          # progress bars) off stdout so the CLI's JSON envelope stays clean.
+          with _stdout_to_stderr():
             processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
             kwargs = {"trust_remote_code": True}
             # Scaled-dot-product attention is much faster than the eager path on
