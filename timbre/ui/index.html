@@ -396,18 +396,21 @@ const waveObserver = new IntersectionObserver((entries) => {
     if (!e.isIntersecting) continue;
     const canvas = e.target, path = canvas._wavePath;
     waveObserver.unobserve(canvas);
+    // The observer fires after layout, so the canvas has a real width here —
+    // drawing earlier (synchronously during renderRows) would hit clientWidth 0.
+    const cached = PEAKS_CACHE.get(path);
+    if (cached) { drawWave(canvas, cached, currentFrac(path)); continue; }
     peaksFor(path)
       .then(p => drawWave(canvas, p, currentFrac(path)))
       .catch(() => drawWave(canvas, null, 0));  // leave the empty bg on error
   }
 }, { rootMargin: "300px" });
 
-// register a canvas for playhead updates and lazy peak loading
+// register a canvas for playhead updates and lazy/post-layout drawing
 function mountWave(canvas, path) {
   canvas._wavePath = path;
   VIEWS.push({ path, canvas });
-  if (PEAKS_CACHE.has(path)) drawWave(canvas, PEAKS_CACHE.get(path), currentFrac(path));
-  else waveObserver.observe(canvas);
+  waveObserver.observe(canvas);
 }
 
 function redrawPath(path) {
