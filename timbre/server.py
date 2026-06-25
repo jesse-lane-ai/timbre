@@ -20,6 +20,16 @@ Endpoints::
            -> {...Tags...}   (create-or-update; marks the entry edited)
     DELETE /tag?path=/abs/kick.wav                    -> {"deleted": "..."}
 
+  Collections (named groups of samples):
+
+    GET    /collections                       -> [ {"name","count",...}, ... ]
+    POST   /collections   body: {"name": "drums"}                 -> the collection
+    POST   /collections/add     body: {"collection": "drums", "paths": [...]}
+    POST   /collections/remove  body: {"collection": "drums", "paths": [...]}
+           -> {"collection": "drums", "count": <remaining members>}
+    DELETE /collections?name=drums            -> {"deleted": "drums"}
+    GET    /tags?collection=drums             -> only that collection's members
+
 All responses use the ``{"ok": bool, "data"|"error": ...}`` envelope.
 """
 
@@ -32,7 +42,21 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import classify, config, delete, get, list_backends, query, store, update
+from . import (
+    classify,
+    collection_add,
+    collection_create,
+    collection_delete,
+    collection_remove,
+    collections,
+    config,
+    delete,
+    get,
+    list_backends,
+    query,
+    store,
+    update,
+)
 from .errors import TimbreError
 from .recognize.types import (
     INSTRUMENT_VOCAB,
@@ -91,7 +115,7 @@ def _vocab() -> dict:
 # Query params that map straight to store.query kwargs, with their coercions.
 _FILTER_COERCE = {
     "category": str, "kind": str, "key": str, "scale": str, "backend": str,
-    "instrument": str, "path_like": str, "order": str,
+    "instrument": str, "path_like": str, "order": str, "collection": str,
     "bpm_min": float, "bpm_max": float, "limit": int,
 }
 
@@ -190,6 +214,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, {"ok": True, "data": _vocab()})
         elif path == "/health":
             self._send(200, {"ok": True, "data": {"status": "ok"}})
+        elif path == "/collections":
+            self._guard(collections)
         elif path == "/audio":
             self._send_audio(qs.get("path", [None])[0])
         elif path == "/tags":
@@ -219,15 +245,35 @@ class _Handler(BaseHTTPRequestHandler):
             self._handle_import(qs)
         elif parsed.path == "/tag":
             self._handle_tag_write()
+        elif parsed.path == "/collections":
+            self._handle_collection_create()
+        elif parsed.path == "/collections/add":
+            self._handle_collection_members(collection_add)
+        elif parsed.path == "/collections/remove":
+            self._handle_collection_members(collection_remove)
         else:
             self._send(404, {"ok": False, "error": f"no such endpoint: {parsed.path}"})
 
     def do_DELETE(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
+        qs = parse_qs(parsed.query)
+        if parsed.path == "/collections":
+            name = qs.get("name", [None])[0]
+            if not name:
+                self._send(400, {"ok": False, "error": "missing ?name="})
+                return
+
+            def _do_coll():
+                if not collection_delete(name):
+                    raise TimbreError(f"no such collection: {name}", code=2)
+                return {"deleted": name}
+
+            self._guard(_do_coll)
+            return
         if parsed.path != "/tag":
             self._send(404, {"ok": False, "error": f"no such endpoint: {parsed.path}"})
             return
-        p = parse_qs(parsed.query).get("path", [None])[0]
+        p = qs.get("path", [None])[0]
         if not p:
             self._send(400, {"ok": False, "error": "missing ?path="})
             return
@@ -278,6 +324,38 @@ class _Handler(BaseHTTPRequestHandler):
         fields = {k: v for k, v in payload.items() if k != "path"}
         self._guard(lambda: update(p, fields), transform=lambda t: t.to_dict())
 
+    def _handle_collection_create(self) -> None:
+        try:
+            payload = json.loads(self._read_body() or b"{}")
+        except json.JSONDecodeError:
+            self._send(400, {"ok": False, "error": "body must be a JSON object"})
+            return
+        name = payload.get("name")
+        if not name:
+            self._send(400, {"ok": False, "error": "JSON body must include a 'name'"})
+            return
+        self._guard(lambda: collection_create(name))
+
+    def _handle_collection_members(self, fn) -> None:
+        """Shared handler for /collections/add and /collections/remove.
+
+        Body: {"collection": "name", "paths": ["/abs/a.wav", ...]}. Returns the
+        collection's resulting member count."""
+        try:
+            payload = json.loads(self._read_body() or b"{}")
+        except json.JSONDecodeError:
+            self._send(400, {"ok": False, "error": "body must be a JSON object"})
+            return
+        name = payload.get("collection")
+        paths = payload.get("paths")
+        if not name:
+            self._send(400, {"ok": False, "error": "JSON body must include a 'collection'"})
+            return
+        if not isinstance(paths, list) or not paths:
+            self._send(400, {"ok": False, "error": "JSON body must include a non-empty 'paths' list"})
+            return
+        self._guard(lambda: {"collection": name, "count": fn(name, paths)})
+
     def _guard(self, fn, transform=lambda x: x) -> None:
         """Run a store op, mapping TimbreError codes to HTTP status and any
         other exception to 500, all in the standard envelope."""
@@ -298,7 +376,7 @@ class _Handler(BaseHTTPRequestHandler):
 
 def run(host: str = "127.0.0.1", port: int = 8765) -> None:
     httpd = ThreadingHTTPServer((host, port), _Handler)
-    print(f"timbre serve → http://{host}:{port}  (library manager UI at /  ·  API: /classify /tags /tag /vocab)")
+    print(f"timbre serve → http://{host}:{port}  (library manager UI at /  ·  API: /classify /tags /tag /collections /vocab)")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

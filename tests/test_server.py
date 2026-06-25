@@ -144,3 +144,41 @@ def test_tag_write_read_delete_round_trip(server):
     with pytest.raises(urllib.error.HTTPError) as ei:
         _req(server, "/tag?path=" + urllib.parse.quote(p), "GET")
     assert ei.value.code == 404
+
+
+def test_collections_round_trip(server):
+    # seed two tag rows to put into a collection
+    a, b = "/abs/x/a.wav", "/abs/x/b.wav"
+    for p in (a, b):
+        _req(server, "/tag", "POST", {"path": p, "category": "kick", "kind": "one-shot"})
+
+    # create a collection
+    _, body = _req(server, "/collections", "POST", {"name": "drums"})
+    assert body["ok"] and body["data"]["name"] == "drums"
+
+    # add both samples
+    _, body = _req(server, "/collections/add", "POST", {"collection": "drums", "paths": [a, b]})
+    assert body["ok"] and body["data"]["count"] == 2
+
+    # it shows up in the listing with the right count
+    _, body = _get(server, "/collections")
+    assert any(c["name"] == "drums" and c["count"] == 2 for c in body["data"])
+
+    # filtering tags by collection returns only its members
+    _, body = _get(server, "/tags?collection=drums")
+    paths = {t["path"] for t in body["data"]}
+    assert paths == {a, b}
+
+    # remove one
+    _, body = _req(server, "/collections/remove", "POST", {"collection": "drums", "paths": [a]})
+    assert body["data"]["count"] == 1
+    _, body = _get(server, "/tags?collection=drums")
+    assert {t["path"] for t in body["data"]} == {b}
+
+    # delete the collection (samples remain in the store)
+    _, body = _req(server, "/collections?name=drums", "DELETE")
+    assert body["ok"] and body["data"]["deleted"] == "drums"
+    _, body = _get(server, "/collections")
+    assert not any(c["name"] == "drums" for c in body["data"])
+    _, body = _req(server, "/tag?path=" + urllib.parse.quote(b), "GET")
+    assert body["ok"]  # the sample itself survived

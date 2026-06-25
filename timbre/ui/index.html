@@ -52,6 +52,7 @@
   tbody tr:hover { background: var(--panel2); }
   tbody tr.sel { background: var(--accent2); }
   td.file { max-width: 380px; overflow: hidden; text-overflow: ellipsis; }
+  td.caption { max-width: 280px; overflow: hidden; text-overflow: ellipsis; }
   .badge { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 11px; background: var(--panel2); border: 1px solid var(--line); }
   .badge.kind { color: var(--accent); }
   .edited-flag { color: var(--edited); margin-left: 5px; }
@@ -78,6 +79,7 @@
     border-bottom: 1px solid var(--line); background: var(--panel);
   }
   .toolbar #selcount { font-size: 12px; }
+  .toolbar .tb-sep { width: 1px; align-self: stretch; background: var(--line); margin: 0 2px; }
   .checkcol { width: 30px; text-align: center; }
   .checkcol input { cursor: pointer; }
   tbody tr.checked { background: #1f2a3a; }
@@ -133,6 +135,7 @@
   <div class="field"><label>bpm max</label><input id="f-bpmmax" type="number" min="0"></div>
   <div class="field"><label>backend</label><select id="f-backend"><option value="">any</option></select></div>
   <div class="field"><label>edited</label><select id="f-edited"><option value="">any</option><option value="true">edited only</option><option value="false">not edited</option></select></div>
+  <div class="field"><label>collection</label><select id="f-collection"><option value="">any</option></select></div>
   <div class="field"><label>limit</label><input id="f-limit" type="number" min="1" value="500"></div>
   <div class="field"><label>&nbsp;</label><button class="primary" id="apply">Apply</button></div>
   <div class="field"><label>&nbsp;</label><button class="ghost" id="reset">Reset</button></div>
@@ -147,6 +150,12 @@
     <option value="paths">Paths</option>
   </select>
   <button class="ghost" id="clear-sel" disabled>Clear selection</button>
+  <span class="tb-sep"></span>
+  <select id="coll-select" title="Collection to add/remove selected rows"></select>
+  <button id="coll-add" disabled>Add to collection</button>
+  <button class="ghost" id="coll-remove" disabled>Remove from collection</button>
+  <button class="ghost" id="coll-new">New collection…</button>
+  <button class="ghost danger" id="coll-del" title="Delete the selected collection">Delete collection</button>
 </div>
 
 <main>
@@ -162,6 +171,7 @@
           <th data-sort="bpm">bpm</th>
           <th data-sort="key">key</th>
           <th data-sort="instruments">instruments</th>
+          <th data-sort="caption">caption</th>
           <th data-sort="filename">file</th>
         </tr></thead>
         <tbody id="rows"></tbody>
@@ -196,6 +206,7 @@
 const API = location.origin && location.protocol.startsWith("http") ? location.origin : "http://127.0.0.1:8765";
 let VOCAB = { kinds: [], categories_by_kind: {}, all_categories: [], instruments: [] };
 let ROWS = [];
+let COLLECTIONS = [];
 let SEL = null;
 let SORT = { key: "filename", dir: 1 };
 const EXPANDED = new Set();   // paths whose inline waveform player is open
@@ -240,6 +251,27 @@ async function loadVocab() {
   try { fillSelect($("f-backend"), await api("/backends"), "any"); } catch {}
 }
 
+async function loadCollections() {
+  try {
+    COLLECTIONS = await api("/collections");
+  } catch {
+    COLLECTIONS = [];  // older server without collections support
+  }
+  // filter dropdown: "any" + each collection with its count
+  const fc = $("f-collection"), curFilter = fc.value;
+  fc.innerHTML = "";
+  fc.add(new Option("any", ""));
+  for (const c of COLLECTIONS) fc.add(new Option(`${c.name} (${c.count})`, c.name));
+  fc.value = curFilter;
+  // toolbar target dropdown: bare names (the thing we add/remove into)
+  const cs = $("coll-select"), curTarget = cs.value;
+  cs.innerHTML = "";
+  if (!COLLECTIONS.length) cs.add(new Option("— no collections —", ""));
+  for (const c of COLLECTIONS) cs.add(new Option(c.name, c.name));
+  cs.value = curTarget;
+  updateSelUI();
+}
+
 function fillSelect(sel, values, anyLabel) {
   const cur = sel.value;
   sel.innerHTML = "";
@@ -253,7 +285,7 @@ function filtersToQuery() {
   const map = {
     path_like: "f-path", kind: "f-kind", category: "f-category", instrument: "f-instrument",
     key: "f-key", scale: "f-scale", bpm_min: "f-bpmmin", bpm_max: "f-bpmmax",
-    backend: "f-backend", limit: "f-limit",
+    backend: "f-backend", collection: "f-collection", limit: "f-limit",
   };
   for (const [k, id] of Object.entries(map)) {
     const v = $(id).value.trim();
@@ -308,6 +340,7 @@ function renderRows() {
       `<td>${r.bpm ?? "—"}</td>` +
       `<td>${esc(r.key || "—")}${r.scale ? " " + esc(r.scale) : ""}</td>` +
       `<td class="muted">${esc((r.instruments || []).join(", ") || "—")}</td>` +
+      `<td class="caption muted" title="${esc(r.caption || "")}">${esc(r.caption || "—")}</td>` +
       `<td class="file" title="${esc(r.path || "")}">${esc(r.filename || "")}` +
         `${r.edited ? '<span class="edited-flag" title="manually edited">✎</span>' : ""}</td>`;
     tr.onclick = () => selectRow(r);
@@ -331,7 +364,7 @@ function renderRows() {
       const dtr = document.createElement("tr");
       dtr.className = "detail";
       const td = document.createElement("td");
-      td.colSpan = 9;
+      td.colSpan = 10;
       td.innerHTML = `<div class="player">
         <button class="play" data-path="${esc(r.path)}" title="Play / pause">${playing ? "⏸" : "▶"}</button>
         <canvas></canvas>
@@ -352,6 +385,10 @@ function updateSelUI() {
   $("selcount").textContent = n ? `${n} selected` : "No rows selected";
   $("copy-meta").disabled = n === 0;
   $("clear-sel").disabled = n === 0;
+  const hasTarget = !!$("coll-select").value;
+  $("coll-add").disabled = n === 0 || !hasTarget;
+  $("coll-remove").disabled = n === 0 || !hasTarget;
+  $("coll-del").disabled = !hasTarget;
   const all = $("check-all");
   const shownSelected = ROWS.filter(r => SELECTED.has(r.path)).length;
   all.checked = total > 0 && shownSelected === total;
@@ -722,9 +759,54 @@ $("check-all").onclick = (e) => {
 $("copy-meta").onclick = copyMetadata;
 $("clear-sel").onclick = () => { SELECTED.clear(); renderRows(); };
 
+// collections: create / delete / add+remove selected rows
+$("coll-select").onchange = updateSelUI;
+
+$("coll-new").onclick = async () => {
+  const name = (prompt("New collection name:") || "").trim();
+  if (!name) return;
+  try {
+    await api("/collections", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+    await loadCollections();
+    $("coll-select").value = name;
+    updateSelUI();
+    toast(`Created collection "${name}"`);
+  } catch (e) { toast(e.message, true); }
+};
+
+$("coll-del").onclick = async () => {
+  const name = $("coll-select").value;
+  if (!name) return;
+  if (!confirm(`Delete collection "${name}"?\n\nThis removes the collection and its memberships. The samples themselves are not deleted.`)) return;
+  try {
+    await api("/collections?name=" + encodeURIComponent(name), { method: "DELETE" });
+    await loadCollections();
+    if ($("f-collection").value === name) { $("f-collection").value = ""; refresh(); }
+    toast(`Deleted collection "${name}"`);
+  } catch (e) { toast(e.message, true); }
+};
+
+async function collectionMembers(endpoint, verb) {
+  const name = $("coll-select").value;
+  const paths = selectedRows().map(r => r.path).filter(Boolean);
+  if (!name || !paths.length) return;
+  try {
+    const res = await api(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ collection: name, paths }) });
+    await loadCollections();
+    $("coll-select").value = name;
+    updateSelUI();
+    // if we're currently filtered to this collection, reflect the change
+    if ($("f-collection").value) refresh();
+    toast(`${verb} ${paths.length} sample${paths.length === 1 ? "" : "s"} ${verb === "Added" ? "to" : "from"} "${name}" (now ${res.count})`);
+  } catch (e) { toast(e.message, true); }
+}
+$("coll-add").onclick = () => collectionMembers("/collections/add", "Added");
+$("coll-remove").onclick = () => collectionMembers("/collections/remove", "Removed");
+
 (async function init() {
   await checkHealth();
   await loadVocab();
+  await loadCollections();
   await refresh();
   setInterval(checkHealth, 10000);
 })();

@@ -107,6 +107,33 @@ timbre.delete("/abs/kick.wav")
 | `POST` | `/tag` | `{"path": "...", "category": "snare", "instruments": ["snare"]}` |
 | `DELETE` | `/tag?path=/abs/kick.wav` | — |
 
+**Collections** group samples by name (a sample can be in many). They're
+available from all three surfaces:
+
+```sh
+timbre collection new drums
+timbre collection add drums /abs/kick.wav /abs/snare.wav
+timbre collection list
+timbre db find --collection drums          # filter the store to a collection
+timbre collection remove drums /abs/kick.wav
+timbre collection rm drums                 # deletes the collection, not the samples
+```
+
+```python
+timbre.collection_create("drums")
+timbre.collection_add("drums", ["/abs/kick.wav"])
+timbre.collections()                        # [{"name","count",...}, ...]
+timbre.query(collection="drums")
+```
+
+| Method | Endpoint | Body / query |
+|---|---|---|
+| `GET` | `/collections` | list with member counts |
+| `POST` | `/collections` | `{"name": "drums"}` |
+| `POST` | `/collections/add` | `{"collection": "drums", "paths": [...]}` |
+| `POST` | `/collections/remove` | `{"collection": "drums", "paths": [...]}` |
+| `DELETE` | `/collections?name=drums` | — |
+
 You can still query the DB directly too:
 
 ```sh
@@ -128,9 +155,12 @@ same HTTP API documented below. You can:
 
 - **filter** the store by kind, category, instrument, key/scale, BPM range, path
   substring, backend, and edited-state;
-- **edit** any entry's tags inline (kind/category dropdowns are populated from
-  the live taxonomy via `/vocab`) — saves mark the entry **edited** so it
-  survives re-scans;
+- **edit** any entry's tags inline (kind/category/instruments/key/scale/bpm and
+  the free-text **caption**) in the side panel — dropdowns are populated from the
+  live taxonomy via `/vocab`, and saves mark the entry **edited** so it survives
+  re-scans. Captions also show as their own table column;
+- **organize** samples into **collections** — create a collection, select rows,
+  and add/remove them as a group; filter the library down to one collection;
 - **select** rows (per-row checkbox or the header select-all) and **copy their
   metadata** to the clipboard as JSON, CSV, or just paths;
 - **delete** entries;
@@ -179,6 +209,7 @@ CORS is wide open (`*`) — the server is meant to be run locally next to the ap
 | `GET` | `/audio?path=…` | a stored sample's raw audio bytes (for the UI player; only files present in the store) |
 | `POST` | `/classify?backend=…` | a `Tags` object (audio file as raw body; stateless, not persisted) |
 | `POST` | `/import?backend=…` | classify + cache the bytes + persist; returns the stored `Tags` (path points at the cached blob) |
+| `GET` · `POST` · `DELETE` | `/collections` (+ `/collections/add`, `/collections/remove`) | manage named sample collections |
 
 ## Install
 

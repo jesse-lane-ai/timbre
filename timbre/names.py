@@ -109,6 +109,16 @@ _KEY_RE = re.compile(
     rf"(?<![A-Za-z]){_NOTE}{_SCALE_KEYWORD}?(?![A-Za-z0-9])",
 )
 
+# Some packs (Loopmasters/Splice "<bpm>_<key>_<name>" convention) spell sharps
+# with a trailing "s" — "Ds" = D#, "As" = A# — because "#" is filesystem-hostile.
+# Recognized only as an isolated, delimited token with an uppercase note + lower
+# "s", so it won't fire on words like "As"/"Gs" mid-name.
+_KEY_S_RE = re.compile(
+    rf"(?<![A-Za-z0-9])([A-G])s{_SCALE_KEYWORD}?(?![A-Za-z0-9])",
+)
+# Theoretical sharps that name a natural — normalize to the common spelling.
+_SHARP_NORMALIZE = {"E#": "F", "B#": "C"}
+
 _ENHARMONIC: dict[str, str] = {
     "ab": "G#", "bb": "A#", "cb": "B", "db": "C#",
     "eb": "D#", "fb": "E", "gb": "F#",
@@ -150,28 +160,33 @@ def _parse_bpm(text: str) -> float | None:
 
 def _parse_key_scale(text: str) -> tuple[str | None, str | None, float]:
     """Extract (root, scale, confidence) from a text fragment."""
-    for m in _KEY_RE.finditer(text):
-        note_raw = m.group(1)
-        scale_raw = (m.group(2) or "").lower().rstrip("0123456789")
+    for regex, is_sharp_s in ((_KEY_RE, False), (_KEY_S_RE, True)):
+        for m in regex.finditer(text):
+            note_raw = m.group(1)
+            scale_raw = (m.group(2) or "").lower().rstrip("0123456789")
 
-        note = note_raw[0].upper() + (note_raw[1:] if len(note_raw) > 1 else "")
-        norm_key = _ENHARMONIC.get(note.lower())
-        if norm_key:
-            note = norm_key
+            if is_sharp_s:
+                note = note_raw.upper() + "#"
+                note = _SHARP_NORMALIZE.get(note, note)
+            else:
+                note = note_raw[0].upper() + (note_raw[1:] if len(note_raw) > 1 else "")
+                norm_key = _ENHARMONIC.get(note.lower())
+                if norm_key:
+                    note = norm_key
 
-        if scale_raw in ("minor", "min", "m"):
-            scale = "minor"
-            conf = 0.9
-        elif scale_raw in ("major", "maj") or (scale_raw.startswith("maj") and len(scale_raw) > 3):
-            scale = "major"
-            conf = 0.9
-        elif scale_raw == "":
-            scale = None
-            conf = 0.6
-        else:
-            continue
+            if scale_raw in ("minor", "min", "m"):
+                scale = "minor"
+                conf = 0.9
+            elif scale_raw in ("major", "maj") or (scale_raw.startswith("maj") and len(scale_raw) > 3):
+                scale = "major"
+                conf = 0.9
+            elif scale_raw == "":
+                scale = None
+                conf = 0.6
+            else:
+                continue
 
-        return note, scale, conf
+            return note, scale, conf
 
     return None, None, 0.0
 

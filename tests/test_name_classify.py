@@ -101,6 +101,24 @@ CASES = [
         "/Packs/Db major/synth_chord.wav",
         {"key": "C#", "scale": "major", "category": "chord"},
     ),
+    # 11. "s"=sharp convention (Loopmasters/Splice), no scale token
+    (
+        "Ds (-> D#) via trailing-s sharp",
+        "/Packs/Hip Hop/87_Ds_GoodlifeSoulString_SP.wav",
+        {"key": "D#", "bpm": 87.0},
+    ),
+    # 12. "s"=sharp glued to scale keyword
+    (
+        "Asmin (-> A# minor)",
+        "/Packs/120_Asmin_thing.wav",
+        {"key": "A#", "scale": "minor", "bpm": 120.0},
+    ),
+    # 13. trailing-s sharp must NOT fire on a real word ("Bass")
+    (
+        "Bass is not a B# key",
+        "/Packs/Bass_loop.wav",
+        {"key": None, "category": "bass"},
+    ),
 ]
 
 # ---------------------------------------------------------------------------

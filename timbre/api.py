@@ -262,3 +262,62 @@ def delete(path, *, db=None) -> bool:
         return store.delete(con, _norm_path(path))
     finally:
         con.close()
+
+
+# --------------------------------------------------------------------------
+# Collections — named groups of samples (see :mod:`timbre.store`).
+# --------------------------------------------------------------------------
+
+def collections(*, db=None) -> list[dict]:
+    """List all collections with member counts."""
+    from . import store
+
+    con = store.open_db(_resolve_db(db))
+    try:
+        return store.collections(con)
+    finally:
+        con.close()
+
+
+def collection_create(name: str, *, db=None) -> dict:
+    """Create a collection (idempotent)."""
+    from . import store
+
+    con = store.open_db(_resolve_db(db))
+    try:
+        return store.collection_create(con, name)
+    finally:
+        con.close()
+
+
+def collection_delete(name: str, *, db=None) -> bool:
+    """Delete a collection and its memberships."""
+    from . import store
+
+    con = store.open_db(_resolve_db(db))
+    try:
+        return store.collection_delete(con, name)
+    finally:
+        con.close()
+
+
+def collection_add(name: str, paths, *, db=None) -> int:
+    """Add sample paths to a collection (creating it if needed)."""
+    from . import store
+
+    con = store.open_db(_resolve_db(db))
+    try:
+        return store.collection_add(con, name, [_norm_path(p) for p in paths])
+    finally:
+        con.close()
+
+
+def collection_remove(name: str, paths, *, db=None) -> int:
+    """Remove sample paths from a collection."""
+    from . import store
+
+    con = store.open_db(_resolve_db(db))
+    try:
+        return store.collection_remove(con, name, [_norm_path(p) for p in paths])
+    finally:
+        con.close()

@@ -316,11 +316,12 @@ def db():
 @click.option("--bpm-max", type=float)
 @click.option("--path", "path_like", help="Substring match on the stored file path.")
 @click.option("--edited/--not-edited", "edited", default=None, help="Only manually-edited (or not) entries.")
+@click.option("--collection", help="Only entries that belong to this collection.")
 @click.option("--order", default="path", show_default=True)
 @click.option("--limit", type=int)
 @db_path_option
 @json_option
-def db_find(category, kind, key, scale, backend, instrument, bpm_min, bpm_max, path_like, edited, order, limit, db_path, as_json):
+def db_find(category, kind, key, scale, backend, instrument, bpm_min, bpm_max, path_like, edited, collection, order, limit, db_path, as_json):
     """Query the store with filters (all ANDed)."""
     from . import query as _query
 
@@ -328,7 +329,7 @@ def db_find(category, kind, key, scale, backend, instrument, bpm_min, bpm_max, p
         tags = _query(
             db=db_path, category=category, kind=kind, key=key, scale=scale, backend=backend,
             instrument=instrument, bpm_min=bpm_min, bpm_max=bpm_max, path_like=path_like,
-            edited=edited, order=order, limit=limit,
+            edited=edited, collection=collection, order=order, limit=limit,
         )
     except TimbreError as e:
         _fail(e, as_json)
@@ -398,6 +399,87 @@ def db_rm(path, db_path, as_json):
         _fail(TimbreError(f"no stored entry for: {path}"), as_json)
         return
     _emit({"deleted": path}, f"deleted {path}", as_json)
+
+
+@cli.group("collection")
+def collection_grp():
+    """Create and manage named collections of samples."""
+
+
+@collection_grp.command("list")
+@db_path_option
+@json_option
+def collection_list(db_path, as_json):
+    """List collections with member counts."""
+    from . import collections as _collections
+
+    cols = _collections(db=db_path)
+    human = "\n".join(f"{c['name']}  ({c['count']})" for c in cols) or "(no collections)"
+    _emit(cols, human, as_json)
+
+
+@collection_grp.command("new")
+@click.argument("name")
+@db_path_option
+@json_option
+def collection_new(name, db_path, as_json):
+    """Create a collection (idempotent)."""
+    from . import collection_create as _create
+
+    try:
+        c = _create(name, db=db_path)
+    except TimbreError as e:
+        _fail(e, as_json)
+        return
+    _emit(c, f"created collection {c['name']}", as_json)
+
+
+@collection_grp.command("rm")
+@click.argument("name")
+@db_path_option
+@json_option
+def collection_rm(name, db_path, as_json):
+    """Delete a collection (its memberships go too; samples are untouched)."""
+    from . import collection_delete as _del
+
+    if not _del(name, db=db_path):
+        _fail(TimbreError(f"no such collection: {name}", code=2), as_json)
+        return
+    _emit({"deleted": name}, f"deleted collection {name}", as_json)
+
+
+@collection_grp.command("add")
+@click.argument("name")
+@click.argument("paths", nargs=-1, required=True)
+@db_path_option
+@json_option
+def collection_add_cmd(name, paths, db_path, as_json):
+    """Add one or more sample PATHS to collection NAME (creates it if needed)."""
+    from . import collection_add as _add
+
+    try:
+        count = _add(name, list(paths), db=db_path)
+    except TimbreError as e:
+        _fail(e, as_json)
+        return
+    _emit({"collection": name, "count": count}, f"{name} now has {count} members", as_json)
+
+
+@collection_grp.command("remove")
+@click.argument("name")
+@click.argument("paths", nargs=-1, required=True)
+@db_path_option
+@json_option
+def collection_remove_cmd(name, paths, db_path, as_json):
+    """Remove one or more sample PATHS from collection NAME."""
+    from . import collection_remove as _remove
+
+    try:
+        count = _remove(name, list(paths), db=db_path)
+    except TimbreError as e:
+        _fail(e, as_json)
+        return
+    _emit({"collection": name, "count": count}, f"{name} now has {count} members", as_json)
 
 
 @cli.group("config")

@@ -35,6 +35,20 @@ CREATE TABLE IF NOT EXISTS tags (
     scanned_at  REAL,
     edited      INTEGER DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS collections (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT UNIQUE NOT NULL,
+    created_at  REAL
+);
+
+CREATE TABLE IF NOT EXISTS collection_members (
+    collection_id INTEGER NOT NULL,
+    path          TEXT NOT NULL,
+    added_at      REAL,
+    PRIMARY KEY (collection_id, path),
+    FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE
+);
 """
 
 # Columns a caller may write via update() — path/mtime/scanned_at/edited are managed.
@@ -47,6 +61,7 @@ def open_db(path: str | Path) -> sqlite3.Connection:
     p.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(str(p))
     con.row_factory = sqlite3.Row
+    con.execute("PRAGMA foreign_keys = ON")
     con.executescript(_SCHEMA)
     # Migrate older DBs that predate the `edited` column.
     cols = {r["name"] for r in con.execute("PRAGMA table_info(tags)")}
@@ -99,12 +114,19 @@ def query(
     bpm_max: float | None = None,
     path_like: str | None = None,
     edited: bool | None = None,
+    collection: str | None = None,
     order: str = "path",
     limit: int | None = None,
 ) -> list[Tags]:
     """Filtered read over the DB. All filters are ANDed; None means 'any'."""
     clauses: list[str] = []
     params: list[object] = []
+    if collection is not None:
+        clauses.append(
+            "path IN (SELECT m.path FROM collection_members m "
+            "JOIN collections c ON c.id = m.collection_id WHERE c.name = ?)"
+        )
+        params.append(collection)
     for col, val in (("category", category), ("kind", kind), ("key", key), ("scale", scale), ("backend", backend)):
         if val is not None:
             clauses.append(f"{col} = ?")
@@ -198,6 +220,85 @@ def upsert(con: sqlite3.Connection, abspath: str, mtime: float | None, tags: Tag
             mtime, time.time(),
         ),
     )
+
+
+# --------------------------------------------------------------------------
+# Collections — named groups of samples. A sample (by path) may belong to any
+# number of collections; membership is independent of the tag row's lifetime,
+# but a deleted collection takes its memberships with it (ON DELETE CASCADE).
+# --------------------------------------------------------------------------
+
+def collections(con: sqlite3.Connection) -> list[dict]:
+    """All collections with their member counts, by name."""
+    rows = con.execute(
+        """SELECT c.id, c.name, c.created_at, COUNT(m.path) AS count
+           FROM collections c
+           LEFT JOIN collection_members m ON m.collection_id = c.id
+           GROUP BY c.id ORDER BY c.name"""
+    ).fetchall()
+    return [{"id": r["id"], "name": r["name"], "created_at": r["created_at"], "count": r["count"]} for r in rows]
+
+
+def _collection_id(con: sqlite3.Connection, name: str) -> int | None:
+    row = con.execute("SELECT id FROM collections WHERE name = ?", (name,)).fetchone()
+    return row["id"] if row else None
+
+
+def collection_create(con: sqlite3.Connection, name: str) -> dict:
+    """Create a collection (idempotent — returns the existing one if present)."""
+    from .errors import BadInputError
+
+    name = (name or "").strip()
+    if not name:
+        raise BadInputError("collection name must not be empty")
+    cid = _collection_id(con, name)
+    if cid is None:
+        cur = con.execute(
+            "INSERT INTO collections (name, created_at) VALUES (?, ?)", (name, time.time())
+        )
+        con.commit()
+        cid = cur.lastrowid
+    return {"id": cid, "name": name, "count": 0}
+
+
+def collection_delete(con: sqlite3.Connection, name: str) -> bool:
+    """Delete a collection and its memberships. Returns True if one was removed."""
+    cur = con.execute("DELETE FROM collections WHERE name = ?", (name,))
+    con.commit()
+    return cur.rowcount > 0
+
+
+def collection_add(con: sqlite3.Connection, name: str, paths: list[str]) -> int:
+    """Add paths to a collection (creating it if needed). Returns the new
+    membership count for the collection."""
+    collection_create(con, name)
+    cid = _collection_id(con, name)
+    now = time.time()
+    con.executemany(
+        "INSERT OR IGNORE INTO collection_members (collection_id, path, added_at) VALUES (?, ?, ?)",
+        [(cid, p, now) for p in paths],
+    )
+    con.commit()
+    return con.execute(
+        "SELECT COUNT(*) AS n FROM collection_members WHERE collection_id = ?", (cid,)
+    ).fetchone()["n"]
+
+
+def collection_remove(con: sqlite3.Connection, name: str, paths: list[str]) -> int:
+    """Remove paths from a collection. Returns the remaining membership count."""
+    from .errors import BadInputError
+
+    cid = _collection_id(con, name)
+    if cid is None:
+        raise BadInputError(f"no such collection: {name}")
+    con.executemany(
+        "DELETE FROM collection_members WHERE collection_id = ? AND path = ?",
+        [(cid, p) for p in paths],
+    )
+    con.commit()
+    return con.execute(
+        "SELECT COUNT(*) AS n FROM collection_members WHERE collection_id = ?", (cid,)
+    ).fetchone()["n"]
 
 
 def _row_to_tags(row: sqlite3.Row) -> Tags:
