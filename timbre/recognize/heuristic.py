@@ -11,10 +11,13 @@ so audio is loaded at most once per file):
     / log-attack-time / percussive ratio into the one-shot vocabulary
     (kick/snare/hat/clap/tom/crash/ride/perc/bass/vocal/melody/...).
 
-Leaves ``instruments`` empty — the heuristic backend has no basis for
-multi-label instrument tagging; that's left to the embedding/generative
-backends. Confidence is a fixed per-rule constant (module-level tuning
-knobs below), not a continuous score.
+Derives ``instruments`` only where the category itself names a concrete
+instrument it's reliable on (drums → ``drums`` + the specific hit, bass
+family, vocal, and the named acoustic/keyboard categories). The abstract
+synth-role categories (``stab``/``melody``/``pad``/``lead``/``arp``/...) carry
+no instrument tag — that's left to the embedding/generative backends.
+Confidence is a fixed per-rule constant (module-level tuning knobs below),
+not a continuous score.
 """
 
 from __future__ import annotations
@@ -25,6 +28,18 @@ from .. import audio_analysis
 from .types import FileProbe, Recognition
 
 NAME = "heuristic"
+
+# Categories the heuristic is reliable enough on to imply an instrument tag.
+# Drum hits also carry the generic "drums" tag; "perc"/"drum" stay bare.
+_DRUM_INSTRUMENT_CATEGORIES = {
+    "kick", "snare", "clap", "snap", "hat", "tom", "crash", "ride", "rim",
+    "perc", "drum",
+}
+# Categories whose name *is* the instrument tag (one-shot + loop vocab).
+_SELF_INSTRUMENT_CATEGORIES = {
+    "bass", "808", "sub", "reese", "guitar", "strings", "brass",
+    "piano", "keys", "vocal",
+}
 
 # --- one-shot spectral thresholds (module constants, tunable) --------------
 
@@ -153,6 +168,22 @@ class HeuristicRecognizer:
     def __init__(self, cache_provider: Callable[[str], audio_analysis._AnalysisCache] | None = None):
         self._cache_provider = cache_provider or audio_analysis._AnalysisCache
 
+    @staticmethod
+    def _instruments_for_category(category: str) -> list[str]:
+        """Concrete instrument tags implied by a reliable category verdict.
+
+        Drum categories yield ``drums`` plus the specific hit (``perc``/``drum``
+        stay the bare ``drums``); bass-family, vocal, and the named
+        acoustic/keyboard categories map to themselves. Abstract synth-role
+        categories get nothing — the heuristic can't name their instrument."""
+        if category in _DRUM_INSTRUMENT_CATEGORIES:
+            if category in ("perc", "drum"):
+                return ["drums"]
+            return sorted({category, "drums"})
+        if category in _SELF_INSTRUMENT_CATEGORIES:
+            return [category]
+        return []
+
     def recognize(self, items: list[FileProbe], on_result=None) -> list[Recognition | None]:
         results: list[Recognition | None] = []
         for item in items:
@@ -174,7 +205,12 @@ class HeuristicRecognizer:
                     except Exception:
                         pass
                 continue
-            rec = Recognition(category=category, instruments=[], source=NAME, confidence=CONFIDENCE)
+            rec = Recognition(
+                category=category,
+                instruments=self._instruments_for_category(category),
+                source=NAME,
+                confidence=CONFIDENCE,
+            )
             results.append(rec)
             if on_result is not None:
                 try:

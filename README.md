@@ -115,6 +115,7 @@ timbre collection new drums
 timbre collection add drums /abs/kick.wav /abs/snare.wav
 timbre collection list
 timbre db find --collection drums          # filter the store to a collection
+timbre collection rename drums percussion
 timbre collection remove drums /abs/kick.wav
 timbre collection rm drums                 # deletes the collection, not the samples
 ```
@@ -132,6 +133,7 @@ timbre.query(collection="drums")
 | `POST` | `/collections` | `{"name": "drums"}` |
 | `POST` | `/collections/add` | `{"collection": "drums", "paths": [...]}` |
 | `POST` | `/collections/remove` | `{"collection": "drums", "paths": [...]}` |
+| `POST` | `/collections/rename` | `{"name": "drums", "new_name": "percussion"}` |
 | `DELETE` | `/collections?name=drums` | — |
 
 You can still query the DB directly too:
@@ -159,8 +161,9 @@ same HTTP API documented below. You can:
   the free-text **caption**) in the side panel — dropdowns are populated from the
   live taxonomy via `/vocab`, and saves mark the entry **edited** so it survives
   re-scans. Captions also show as their own table column;
-- **organize** samples into **collections** — create a collection, select rows,
-  and add/remove them as a group; filter the library down to one collection;
+- **organize** samples into **collections** — a left sidebar lists every
+  collection with its count; click one to browse it, hover to rename or delete
+  it, and use the toolbar to add/remove the selected rows as a group;
 - **select** rows (per-row checkbox or the header select-all) and **copy their
   metadata** to the clipboard as JSON, CSV, or just paths;
 - **delete** entries;

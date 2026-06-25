@@ -75,6 +75,18 @@ _INSTRUMENT_TO_CATEGORY: dict[str, tuple[str, ...]] = {
     "violin": ("strings", "melodic"), "cello": ("strings", "melodic"),
     "brass": ("brass", "melodic"), "trumpet": ("brass", "melodic"),
     "sax": ("brass", "melodic"), "flute": ("melody", "melodic"),
+    # plucked world / folk strings — pitched, plucked, not in the coarse vocab,
+    # so they resolve to the generic melodic/pluck roles.
+    "koto": ("pluck", "melody", "melodic"), "guzheng": ("pluck", "melody", "melodic"),
+    "zither": ("pluck", "melody", "melodic"), "sitar": ("pluck", "melody", "melodic"),
+    "harp": ("pluck", "melody", "melodic"), "banjo": ("pluck", "guitar", "melodic"),
+    "ukulele": ("pluck", "guitar", "melodic"),
+    # mallets / pitched percussion — bell-like pitched tone.
+    "marimba": ("melody", "perc", "melodic"), "kalimba": ("melody", "perc", "melodic"),
+    "vibraphone": ("melody", "perc", "melodic"), "xylophone": ("melody", "perc", "melodic"),
+    "glockenspiel": ("melody", "perc", "melodic"),
+    # other keyboards
+    "harpsichord": ("keys", "melodic"), "accordion": ("keys", "melodic"),
     "choir": ("vocal",), "vocal": ("vocal",), "fx": ("fx",),
 }
 
@@ -223,12 +235,38 @@ def _categories(kind: str) -> tuple[str, ...]:
     return categories_for_kind(kind)
 
 
+# Extra surface forms a vocab term should also match — captions inflect freely
+# ("a string stab" for `strings`, "lo-fi synthesizer" for `synth`). Kept as an
+# explicit, conservative list rather than algorithmic stemming (which mangles
+# "bass"->"bas", "brass"->"bras"); every form stays whole-word anchored, so
+# `sub` still won't fire on "subtle".
+_VOCAB_VARIANTS: dict[str, tuple[str, ...]] = {
+    "strings": ("string",),
+    "synth": ("synthesizer", "synthesizers", "synthesised", "synthesized", "synth pad", "synth lead"),
+    "keys": ("keyboard", "keyboards"),
+    "piano": ("pianos",),
+    "organ": ("organs",),
+    "guitar": ("guitars",),
+    "pluck": ("plucked", "plucks"),
+    "bell": ("bells", "chime", "chimes"),
+    "pad": ("pads",),
+    "lead": ("leads",),
+    "vocal": ("vocals", "voice", "voices", "vox", "singing", "sung"),
+    "choir": ("choral", "chorale"),
+    "brass": ("horns", "horn section"),
+    "drums": ("drum",),
+}
+
+
 def _word_re(term: str) -> "re.Pattern[str]":
-    """A whole-word matcher for a vocab term — so 'snap' doesn't fire on
-    'snappy', 'sub' on 'subtle', or 'rim' on 'primary'. Cached per term."""
+    """A whole-word matcher for a vocab term (plus its `_VOCAB_VARIANTS` surface
+    forms) — so 'snap' doesn't fire on 'snappy', 'sub' on 'subtle', or 'rim' on
+    'primary', but 'strings' still catches "string". Cached per term."""
     cached = _WORD_RE_CACHE.get(term)
     if cached is None:
-        cached = re.compile(rf"\b{re.escape(term)}\b")
+        forms = (term, *_VOCAB_VARIANTS.get(term, ()))
+        alt = "|".join(re.escape(f) for f in forms)
+        cached = re.compile(rf"\b(?:{alt})\b")
         _WORD_RE_CACHE[term] = cached
     return cached
 

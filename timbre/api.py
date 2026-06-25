@@ -290,6 +290,17 @@ def collection_create(name: str, *, db=None) -> dict:
         con.close()
 
 
+def collection_rename(name: str, new_name: str, *, db=None) -> dict:
+    """Rename a collection."""
+    from . import store
+
+    con = store.open_db(_resolve_db(db))
+    try:
+        return store.collection_rename(con, name, new_name)
+    finally:
+        con.close()
+
+
 def collection_delete(name: str, *, db=None) -> bool:
     """Delete a collection and its memberships."""
     from . import store

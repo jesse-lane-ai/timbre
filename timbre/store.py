@@ -261,6 +261,26 @@ def collection_create(con: sqlite3.Connection, name: str) -> dict:
     return {"id": cid, "name": name, "count": 0}
 
 
+def collection_rename(con: sqlite3.Connection, name: str, new_name: str) -> dict:
+    """Rename a collection. Returns the renamed collection (id/name/count)."""
+    from .errors import BadInputError
+
+    new_name = (new_name or "").strip()
+    if not new_name:
+        raise BadInputError("new collection name must not be empty")
+    cid = _collection_id(con, name)
+    if cid is None:
+        raise BadInputError(f"no such collection: {name}")
+    if _collection_id(con, new_name) not in (None, cid):
+        raise BadInputError(f"a collection named '{new_name}' already exists")
+    con.execute("UPDATE collections SET name = ? WHERE id = ?", (new_name, cid))
+    con.commit()
+    count = con.execute(
+        "SELECT COUNT(*) AS n FROM collection_members WHERE collection_id = ?", (cid,)
+    ).fetchone()["n"]
+    return {"id": cid, "name": new_name, "count": count}
+
+
 def collection_delete(con: sqlite3.Connection, name: str) -> bool:
     """Delete a collection and its memberships. Returns True if one was removed."""
     cur = con.execute("DELETE FROM collections WHERE name = ?", (name,))

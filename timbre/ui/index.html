@@ -43,6 +43,30 @@
   button.danger { color: var(--danger); border-color: #4a2d31; }
   button.danger:hover { background: #3a2326; }
   button.ghost { background: transparent; }
+  nav.collections {
+    width: 220px; flex: 0 0 220px; border-right: 1px solid var(--line);
+    background: var(--panel); display: flex; flex-direction: column; overflow: auto;
+  }
+  nav.collections .chead {
+    display: flex; align-items: center; gap: 8px; padding: 10px 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  nav.collections .chead h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin: 0; }
+  nav.collections .chead button { margin-left: auto; padding: 3px 8px; font-size: 12px; }
+  nav.collections .clist { flex: 1; padding: 6px; }
+  .citem {
+    display: flex; align-items: center; gap: 6px; padding: 7px 8px; border-radius: 6px;
+    cursor: pointer; user-select: none; color: var(--fg);
+  }
+  .citem:hover { background: var(--panel2); }
+  .citem.active { background: var(--accent2); }
+  .citem .cname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .citem .ccount { font-size: 11px; color: var(--muted); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 0 7px; }
+  .citem .cact { display: none; gap: 2px; }
+  .citem:hover .cact { display: flex; }
+  .citem .cact button { padding: 1px 5px; font-size: 11px; background: transparent; border: 1px solid var(--line); }
+  .citem .cact button:hover { background: var(--panel); }
+  .citem .cempty { color: var(--muted); font-size: 12px; padding: 6px 8px; }
   .left { flex: 1; display: flex; flex-direction: column; min-width: 0; }
   .tablewrap { flex: 1; overflow: auto; }
   table { width: 100%; border-collapse: collapse; }
@@ -159,6 +183,13 @@
 </div>
 
 <main>
+  <nav class="collections">
+    <div class="chead">
+      <h2>Collections</h2>
+      <button class="primary" id="coll-new-side">+ New</button>
+    </div>
+    <div class="clist" id="coll-list"></div>
+  </nav>
   <div class="left">
     <div class="tablewrap">
       <table>
@@ -269,7 +300,89 @@ async function loadCollections() {
   if (!COLLECTIONS.length) cs.add(new Option("— no collections —", ""));
   for (const c of COLLECTIONS) cs.add(new Option(c.name, c.name));
   cs.value = curTarget;
+  renderCollections();
   updateSelUI();
+}
+
+function setCollectionFilter(name) {
+  $("f-collection").value = name || "";
+  renderCollections();
+  refresh();
+}
+
+function renderCollections() {
+  const list = $("coll-list");
+  const active = $("f-collection").value;
+  const total = COLLECTIONS.reduce((n, c) => n + c.count, 0);
+  list.innerHTML = "";
+
+  // "All samples" pseudo-entry clears the collection filter
+  const all = document.createElement("div");
+  all.className = "citem" + (active ? "" : " active");
+  all.innerHTML = `<span class="cname">All samples</span>`;
+  all.onclick = () => setCollectionFilter("");
+  list.appendChild(all);
+
+  if (!COLLECTIONS.length) {
+    const e = document.createElement("div");
+    e.className = "cempty";
+    e.textContent = "No collections yet. Select rows and use the toolbar, or “+ New”.";
+    list.appendChild(e);
+    return;
+  }
+
+  for (const c of COLLECTIONS) {
+    const el = document.createElement("div");
+    el.className = "citem" + (active === c.name ? " active" : "");
+    el.innerHTML =
+      `<span class="cname" title="${esc(c.name)}">${esc(c.name)}</span>` +
+      `<span class="ccount">${c.count}</span>` +
+      `<span class="cact">` +
+        `<button class="ren" title="Rename">✎</button>` +
+        `<button class="del" title="Delete">✕</button>` +
+      `</span>`;
+    el.onclick = () => setCollectionFilter(active === c.name ? "" : c.name);
+    el.querySelector(".ren").onclick = (e) => { e.stopPropagation(); renameCollection(c.name); };
+    el.querySelector(".del").onclick = (e) => { e.stopPropagation(); deleteCollection(c.name); };
+    list.appendChild(el);
+  }
+}
+
+async function newCollection() {
+  const name = (prompt("New collection name:") || "").trim();
+  if (!name) return;
+  try {
+    await api("/collections", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+    await loadCollections();
+    $("coll-select").value = name;
+    updateSelUI();
+    toast(`Created collection "${name}"`);
+  } catch (e) { toast(e.message, true); }
+}
+
+async function renameCollection(name) {
+  const next = (prompt(`Rename collection "${name}" to:`, name) || "").trim();
+  if (!next || next === name) return;
+  try {
+    await api("/collections/rename", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, new_name: next }) });
+    const wasActive = $("f-collection").value === name;
+    const wasTarget = $("coll-select").value === name;
+    await loadCollections();
+    if (wasTarget) $("coll-select").value = next;
+    updateSelUI();
+    if (wasActive) setCollectionFilter(next); else toast(`Renamed to "${next}"`);
+  } catch (e) { toast(e.message, true); }
+}
+
+async function deleteCollection(name) {
+  if (!confirm(`Delete collection "${name}"?\n\nThis removes the collection and its memberships. The samples themselves are not deleted.`)) return;
+  try {
+    await api("/collections?name=" + encodeURIComponent(name), { method: "DELETE" });
+    const wasActive = $("f-collection").value === name;
+    await loadCollections();
+    updateSelUI();
+    if (wasActive) setCollectionFilter(""); else toast(`Deleted collection "${name}"`);
+  } catch (e) { toast(e.message, true); }
 }
 
 function fillSelect(sel, values, anyLabel) {
@@ -303,6 +416,7 @@ async function refresh() {
     const present = new Set(ROWS.map(r => r.path));
     for (const p of [...SELECTED]) if (!present.has(p)) SELECTED.delete(p);
     renderRows();
+    if (COLLECTIONS.length || $("f-collection").value) renderCollections();
   } catch (e) { toast(e.message, true); }
 }
 
@@ -761,30 +875,9 @@ $("clear-sel").onclick = () => { SELECTED.clear(); renderRows(); };
 
 // collections: create / delete / add+remove selected rows
 $("coll-select").onchange = updateSelUI;
-
-$("coll-new").onclick = async () => {
-  const name = (prompt("New collection name:") || "").trim();
-  if (!name) return;
-  try {
-    await api("/collections", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
-    await loadCollections();
-    $("coll-select").value = name;
-    updateSelUI();
-    toast(`Created collection "${name}"`);
-  } catch (e) { toast(e.message, true); }
-};
-
-$("coll-del").onclick = async () => {
-  const name = $("coll-select").value;
-  if (!name) return;
-  if (!confirm(`Delete collection "${name}"?\n\nThis removes the collection and its memberships. The samples themselves are not deleted.`)) return;
-  try {
-    await api("/collections?name=" + encodeURIComponent(name), { method: "DELETE" });
-    await loadCollections();
-    if ($("f-collection").value === name) { $("f-collection").value = ""; refresh(); }
-    toast(`Deleted collection "${name}"`);
-  } catch (e) { toast(e.message, true); }
-};
+$("coll-new").onclick = newCollection;
+$("coll-new-side").onclick = newCollection;
+$("coll-del").onclick = () => { const n = $("coll-select").value; if (n) deleteCollection(n); };
 
 async function collectionMembers(endpoint, verb) {
   const name = $("coll-select").value;

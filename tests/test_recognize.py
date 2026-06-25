@@ -151,8 +151,24 @@ def test_heuristic_recognizer_batch(monkeypatch):
         FileProbe(path=Path("hat.wav"), filename="hat.wav", duration=0.1, kind="one-shot"),
     ]
     results = recognizer.recognize(items)
-    assert results[0] == Recognition(category="kick", instruments=[], source="heuristic", confidence=0.55)
-    assert results[1] == Recognition(category="hat", instruments=[], source="heuristic", confidence=0.55)
+    # Drum verdicts now carry derived instrument tags: the generic "drums" plus
+    # the specific hit.
+    assert results[0] == Recognition(category="kick", instruments=["drums", "kick"], source="heuristic", confidence=0.55)
+    assert results[1] == Recognition(category="hat", instruments=["drums", "hat"], source="heuristic", confidence=0.55)
+
+
+@pytest.mark.parametrize("category,expected", [
+    ("perc", ["drums"]),
+    ("kick", ["drums", "kick"]),
+    ("bass", ["bass"]),
+    ("piano", ["piano"]),
+    ("vocal", ["vocal"]),
+    ("stab", []),       # abstract synth-role — no instrument basis
+    ("melody", []),
+    ("fx", []),
+])
+def test_heuristic_instruments_for_category(category, expected):
+    assert HeuristicRecognizer._instruments_for_category(category) == expected
 
 
 def test_heuristic_recognizer_defers_on_unreadable_file():
@@ -427,3 +443,34 @@ def test_score_categories_empty_when_no_match():
     from timbre.recognize.types import LOOP_CATEGORIES
 
     assert _score_categories("an indescribable noise", LOOP_CATEGORIES) == []
+
+
+def test_match_vocab_tolerates_inflected_surface_forms():
+    from timbre.recognize.ace_step import _match_vocab
+    from timbre.recognize.types import INSTRUMENT_VOCAB
+
+    # Captions inflect freely: singular "string" -> strings, "synthesizer" ->
+    # synth. Both must reach their canonical vocab tag.
+    assert "strings" in _match_vocab("a sampled orchestral string stab", INSTRUMENT_VOCAB)
+    assert "synth" in _match_vocab("a lo-fi chiptune synthesizer", INSTRUMENT_VOCAB)
+    assert "vocal" in _match_vocab("a soft female voice", INSTRUMENT_VOCAB)
+
+
+def test_match_vocab_keeps_whole_word_guards():
+    from timbre.recognize.ace_step import _match_vocab
+    from timbre.recognize.types import INSTRUMENT_VOCAB
+
+    # The inflection tolerance must not break the substring guards.
+    assert "sub" not in _match_vocab("a subtle texture", INSTRUMENT_VOCAB)
+    assert "strings" not in _match_vocab("restring the patch", INSTRUMENT_VOCAB)
+
+
+def test_world_instruments_resolve_to_melodic_category():
+    from timbre.recognize.ace_step import _match_vocab, _category_from_instruments
+    from timbre.recognize.types import INSTRUMENT_VOCAB, LOOP_CATEGORIES
+
+    caption = "a plucked koto or guzheng with an East Asian tonality"
+    instruments = _match_vocab(caption, INSTRUMENT_VOCAB)
+    assert "koto" in instruments and "guzheng" in instruments
+    # Not in the coarse loop vocab themselves -> resolve to the melodic role.
+    assert _category_from_instruments(instruments, LOOP_CATEGORIES) == "melodic"

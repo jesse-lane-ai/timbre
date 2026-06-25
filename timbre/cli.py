@@ -434,6 +434,23 @@ def collection_new(name, db_path, as_json):
     _emit(c, f"created collection {c['name']}", as_json)
 
 
+@collection_grp.command("rename")
+@click.argument("name")
+@click.argument("new_name")
+@db_path_option
+@json_option
+def collection_rename_cmd(name, new_name, db_path, as_json):
+    """Rename collection NAME to NEW_NAME."""
+    from . import collection_rename as _rename
+
+    try:
+        c = _rename(name, new_name, db=db_path)
+    except TimbreError as e:
+        _fail(e, as_json)
+        return
+    _emit(c, f"renamed {name} → {c['name']}", as_json)
+
+
 @collection_grp.command("rm")
 @click.argument("name")
 @db_path_option

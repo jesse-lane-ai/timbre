@@ -169,16 +169,23 @@ def test_collections_round_trip(server):
     paths = {t["path"] for t in body["data"]}
     assert paths == {a, b}
 
+    # rename (members carry over)
+    _, body = _req(server, "/collections/rename", "POST", {"name": "drums", "new_name": "perc"})
+    assert body["ok"] and body["data"]["name"] == "perc" and body["data"]["count"] == 2
+    _, body = _get(server, "/tags?collection=perc")
+    assert {t["path"] for t in body["data"]} == {a, b}
+    name = "perc"
+
     # remove one
-    _, body = _req(server, "/collections/remove", "POST", {"collection": "drums", "paths": [a]})
+    _, body = _req(server, "/collections/remove", "POST", {"collection": name, "paths": [a]})
     assert body["data"]["count"] == 1
-    _, body = _get(server, "/tags?collection=drums")
+    _, body = _get(server, "/tags?collection=" + name)
     assert {t["path"] for t in body["data"]} == {b}
 
     # delete the collection (samples remain in the store)
-    _, body = _req(server, "/collections?name=drums", "DELETE")
-    assert body["ok"] and body["data"]["deleted"] == "drums"
+    _, body = _req(server, "/collections?name=" + name, "DELETE")
+    assert body["ok"] and body["data"]["deleted"] == name
     _, body = _get(server, "/collections")
-    assert not any(c["name"] == "drums" for c in body["data"])
+    assert not any(c["name"] == name for c in body["data"])
     _, body = _req(server, "/tag?path=" + urllib.parse.quote(b), "GET")
     assert body["ok"]  # the sample itself survived

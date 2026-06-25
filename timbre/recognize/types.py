@@ -86,6 +86,12 @@ INSTRUMENT_VOCAB: tuple[str, ...] = (
     "lead", "pad", "pluck", "arp", "synth", "keys", "piano", "organ", "bell",
     # acoustic
     "guitar", "strings", "violin", "cello", "brass", "trumpet", "sax", "flute", "choir",
+    # plucked world / folk strings
+    "koto", "guzheng", "zither", "sitar", "harp", "banjo", "ukulele",
+    # mallets / pitched percussion
+    "marimba", "kalimba", "vibraphone", "xylophone", "glockenspiel",
+    # other keyboard
+    "harpsichord", "accordion",
     # other
     "vocal", "fx",
 )

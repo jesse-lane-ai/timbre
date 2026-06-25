@@ -48,6 +48,7 @@ from . import (
     collection_create,
     collection_delete,
     collection_remove,
+    collection_rename,
     collections,
     config,
     delete,
@@ -251,6 +252,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._handle_collection_members(collection_add)
         elif parsed.path == "/collections/remove":
             self._handle_collection_members(collection_remove)
+        elif parsed.path == "/collections/rename":
+            self._handle_collection_rename()
         else:
             self._send(404, {"ok": False, "error": f"no such endpoint: {parsed.path}"})
 
@@ -335,6 +338,18 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(400, {"ok": False, "error": "JSON body must include a 'name'"})
             return
         self._guard(lambda: collection_create(name))
+
+    def _handle_collection_rename(self) -> None:
+        try:
+            payload = json.loads(self._read_body() or b"{}")
+        except json.JSONDecodeError:
+            self._send(400, {"ok": False, "error": "body must be a JSON object"})
+            return
+        name, new_name = payload.get("name"), payload.get("new_name")
+        if not name or not new_name:
+            self._send(400, {"ok": False, "error": "JSON body must include 'name' and 'new_name'"})
+            return
+        self._guard(lambda: collection_rename(name, new_name))
 
     def _handle_collection_members(self, fn) -> None:
         """Shared handler for /collections/add and /collections/remove.
