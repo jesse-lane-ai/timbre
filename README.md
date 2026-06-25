@@ -60,7 +60,23 @@ timbre scan ./packs --db other.db   # override the DB path for this scan
 ```
 
 Cache validity is keyed on file **mtime** and the **backend** used — touch a file
-or switch backends and it's re-classified.
+or switch backends and it's re-classified. (So name/caption-parsing changes only
+take effect on already-scanned files once you `--rescan` them.)
+
+### Progressive scan (`--escalate`)
+
+Spend the expensive model only where the cheap pass falls short. With
+`--escalate`, every file is first classified by the primary `--backend` (cheap,
+e.g. `heuristic`), then **only the files it couldn't place** — no category *and*
+no instruments — are re-run through the heavier escalation backend:
+
+```sh
+timbre scan ./packs --backend heuristic --escalate ace-step
+```
+
+Both tiers' verdicts are cached, so a re-scan re-runs neither. A file the
+escalation backend itself gave up on is not retried on the next pass; only
+unplaced rows still on the primary backend get escalated.
 
 **Config** (env var > config file > default):
 
