@@ -22,6 +22,7 @@ import re
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 from .types import (
     INSTRUMENT_VOCAB,
@@ -86,6 +87,66 @@ def _category_from_instruments(instruments: list[str], cats: tuple[str, ...]) ->
             if cand in cats:
                 return cand
     return None
+
+
+# --- loop-context disambiguation -------------------------------------------
+# A short, *unpitched* one-shot that the model captions as a tonal/melodic
+# sound is a known failure: a dry drum hit (esp. with a bright click) reads to
+# the captioner as "a single organ/piano chord". Re-captioning the same hit laid
+# out as a four-on-the-floor loop gives the model the rhythmic context it was
+# trained on, and it reliably flips to "kick/snare drum loop". We only do this
+# for the narrow conflict — never for every one-shot — so melodic hits (guitar,
+# piano) are untouched and the model cost stays near zero.
+LOOP_CONTEXT_MAX_SECONDS = 1.5   # only short single hits
+LOOP_CONTEXT_MAX_VOICED = 0.6    # only *unpitched* audio (drums), not tonal notes
+LOOP_CONTEXT_BPM = 120.0
+LOOP_CONTEXT_BARS = 2
+
+# Tonal/melodic one-shot categories whose verdict on unpitched audio is suspect
+# — the trigger for a loop re-caption.
+_LOOP_CONTEXT_TONAL = {
+    "bass", "sub", "808", "reese", "stab", "melody", "lead", "pad", "pluck",
+    "arp", "chord", "keys", "piano", "organ", "synth",
+}
+# Categories that, when the *loop* caption lands on them, confirm a drum hit and
+# override the tonal verdict.
+_LOOP_CONTEXT_DRUM = {
+    "kick", "snare", "clap", "snap", "hat", "tom", "crash", "ride", "rim",
+    "perc", "808",
+}
+
+
+def _loop_context_enabled() -> bool:
+    """On by default for the ace-step backend; disable with
+    ACESTEP_LOOP_CONTEXT=0."""
+    return os.environ.get("ACESTEP_LOOP_CONTEXT", "1").lower() not in ("0", "false", "no")
+
+
+def _build_four_on_floor(path: str) -> str:
+    """Render the one-shot at ``path`` as a peak-normalized four-on-the-floor
+    loop (LOOP_CONTEXT_BARS bars at LOOP_CONTEXT_BPM) to a temp WAV; returns its
+    path. Caller deletes it."""
+    import tempfile
+
+    import librosa
+    import numpy as np
+    import soundfile as sf
+
+    sr = 44100
+    y, _ = librosa.load(path, sr=sr, mono=True)
+    step = int((60.0 / LOOP_CONTEXT_BPM) * sr)
+    beats = LOOP_CONTEXT_BARS * 4
+    buf = np.zeros(step * beats + len(y), dtype=np.float32)
+    for i in range(beats):
+        s = i * step
+        buf[s:s + len(y)] += y
+    peak = float(np.max(np.abs(buf)))
+    if peak > 0:
+        buf /= peak
+    fh = tempfile.NamedTemporaryFile(suffix="_4otf.wav", delete=False)
+    fh.close()
+    sf.write(fh.name, buf, sr)
+    return fh.name
 
 
 def _batch_size() -> int:
@@ -297,6 +358,12 @@ class AceStepRecognizer:
                     except Exception:
                         pass
 
+        # Loop-context pass: re-caption the narrow set of short, unpitched
+        # one-shots the model mislabeled as tonal, using a four-on-the-floor
+        # loop to supply rhythmic context. Overrides in place.
+        if _loop_context_enabled():
+            self._apply_loop_context(items, results, analytics, on_result)
+
         elapsed = time.time() - run_start
         analytics.emit({"event": "summary", "total_files": total,
                         "captioned": counts["captioned"], "deferred": counts["deferred"],
@@ -378,6 +445,84 @@ class AceStepRecognizer:
             confidence=confidence,
             caption=caption,
         )
+
+    def _apply_loop_context(self, items: list[FileProbe],
+                            results: list["Recognition | None"],
+                            analytics: "_Analytics", on_result) -> None:
+        """Second-opinion pass for the narrow drum-as-tonal failure: short,
+        *unpitched* one-shots the model captioned as a tonal/melodic category get
+        re-captioned as a four-on-the-floor loop; if the loop caption lands on a
+        drum category, override the verdict. Only the conflicted files are
+        touched (typically a handful), so the cost is a few short extra captions."""
+        from .. import audio_analysis
+
+        candidates: list[int] = []
+        for idx, (item, rec) in enumerate(zip(items, results)):
+            if rec is None or item.kind != "one-shot":
+                continue
+            if (item.duration or 1e9) > LOOP_CONTEXT_MAX_SECONDS:
+                continue
+            if rec.category not in _LOOP_CONTEXT_TONAL:
+                continue
+            # Cheap filters passed; now the audio check — only *unpitched* hits
+            # (a real tonal note keeps its caption).
+            try:
+                voiced = audio_analysis._AnalysisCache(str(item.path)).voiced_ratio()
+            except Exception:
+                continue
+            if voiced < LOOP_CONTEXT_MAX_VOICED:
+                candidates.append(idx)
+
+        if not candidates:
+            return
+
+        loops: dict[int, str] = {}
+        try:
+            for idx in candidates:
+                try:
+                    loops[idx] = _build_four_on_floor(str(items[idx].path))
+                except Exception:
+                    pass
+            if not loops:
+                return
+            order = list(loops.keys())
+            captions = self._caption_chunk([
+                FileProbe(path=Path(loops[i]), filename=items[i].filename,
+                          duration=float(LOOP_CONTEXT_BARS * 4 * 60.0 / LOOP_CONTEXT_BPM),
+                          kind="loop")
+                for i in order
+            ])
+        finally:
+            for p in loops.values():
+                try:
+                    os.unlink(p)
+                except OSError:
+                    pass
+
+        cats = _categories("one-shot")
+        for idx, caption in zip(order, captions):
+            if not caption:
+                continue
+            scored = _score_categories(caption, cats)
+            new_cat = scored[0][0] if scored else None
+            if new_cat not in _LOOP_CONTEXT_DRUM:
+                continue
+            item, old = items[idx], results[idx]
+            instruments = _match_vocab(caption, INSTRUMENT_VOCAB)[:INSTRUMENT_CAP]
+            results[idx] = Recognition(
+                category=new_cat, instruments=instruments, source=NAME,
+                confidence=CAPTION_CONFIDENCE, caption=caption,
+            )
+            self._progress(idx + 1, len(items), item.filename,
+                           f"-> {new_cat} (loop-context, was {old.category})")
+            analytics.emit({"event": "loop_context", "file": item.filename,
+                            "was": old.category, "now": new_cat,
+                            "instruments": instruments, "caption": caption})
+            if on_result is not None:
+                try:
+                    on_result(item, results[idx])
+                except Exception:
+                    pass
 
     @staticmethod
     def _progress(done: int, total: int, filename: str, note: str) -> None:

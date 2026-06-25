@@ -27,6 +27,13 @@ Config (env):
                                   cut wall-clock on large scans, at the cost of
                                   more VRAM (longest clip in the batch sets the
                                   padded length). Try 4–8 on a 24 GB card.
+  * ``ACESTEP_LOOP_CONTEXT``    — default on; set ``0`` to disable the
+                                  loop-context disambiguation pass (see
+                                  ``recognize.ace_step._apply_loop_context``):
+                                  short *unpitched* one-shots captioned as tonal
+                                  are re-captioned as a four-on-the-floor loop and
+                                  overridden to a drum category when the loop
+                                  reads as one.
 """
 
 from __future__ import annotations
