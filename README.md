@@ -291,12 +291,12 @@ every matmul, so on a GPU that already fits `full` the quantized modes are
 typically *slightly slower* per token. They only win on speed when `full` would
 otherwise offload to CPU or OOM.
 
-| Free VRAM | Recommended | Why |
-|---|---|---|
-| ≥ ~24 GB | `full` | Fastest, best caption quality (no dequant overhead). |
-| ~12–16 GB | `8bit` | `full` would be tight/offload; 8bit fits with minimal quality loss. |
-| ~8–12 GB | `4bit` | Often the only mode that fits; faster than `full` here only because `full` can't run. |
-| < 8 GB | use `clap` or `heuristic` | The captioner won't fit even at 4-bit. |
+| Free VRAM | Example GPU | Recommended | Why |
+|---|---|---|---|
+| ≥ ~24 GB | RTX 3090 / 4090 | `full` | Fastest, best caption quality (no dequant overhead). |
+| ~12–16 GB | RTX 3080 / 4070 Ti | `8bit` | `full` would be tight/offload; 8bit fits with minimal quality loss. |
+| ~8–12 GB | RTX 3060 12 GB | `4bit` | Often the only mode that fits; faster than `full` here only because `full` can't run. |
+| < 8 GB | RTX 3050 / laptop GPUs | use `clap` or `heuristic` | The captioner won't fit even at 4-bit. |
 
 Caption quality degrades slightly with `4bit` (nf4), which can matter since
 timbre keyword-maps the caption to a category — prefer the highest mode that fits.
