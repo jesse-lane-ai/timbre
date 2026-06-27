@@ -41,6 +41,23 @@ def test_new_categories_from_name(name, category):
     assert classify(name)["category"] == category
 
 
+@pytest.mark.parametrize(
+    "name,instruments",
+    [
+        ("sung_vocal_C.wav", ["singing"]),          # singing cue
+        ("acapella_hook.wav", ["singing"]),
+        ("spoken_word_intro.wav", ["spoken"]),      # spoken cue
+        ("voice_memo_idea.wav", ["spoken"]),
+        ("vocal_chop_01.wav", ["singing"]),         # "vocal chop" subtype
+        ("vocal_phrase.wav", ["vocal"]),            # generic vocal, no subtype cue
+    ],
+)
+def test_vocal_subtype_from_name(name, instruments):
+    r = classify(name)
+    assert r["category"] == "vocal"
+    assert r["instruments"] == instruments
+
+
 def test_808_is_bass_instrument_not_drum():
     r = classify("808_sub.wav")
     # whichever of 808/sub wins, the instrument tag is not a drum rollup

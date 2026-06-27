@@ -22,7 +22,7 @@ for architecture and internals see [`CLAUDE.md`](../CLAUDE.md).
 | `loop` | `drum`, `perc`, `bass`, `sub`, `808`, `melodic`, `vocal`, `fx`, `riser`, `texture`, `ambience`, `foley`, `full` |
 | `recording` | `full`, `vocal`, `instrument`, `drum`, `melodic`, `ambience`, `field`, `foley`, `fx` |
 
-**Instruments** (shared across all kinds): `kick`, `snare`, `clap`, `snap`, `rimshot`, `hihat`, `open hat`, `crash`, `ride`, `cymbal`, `tom`, `conga`, `bongo`, `shaker`, `tambourine`, `cowbell`, `woodblock`, `clave`, `triangle`, `djembe`, `timbale`, `agogo`, `cabasa`, `drums`, `percussion`, `bass`, `808`, `sub`, `reese`, `lead`, `pad`, `pluck`, `arp`, `synth`, `keys`, `piano`, `organ`, `bell`, `guitar`, `strings`, `violin`, `cello`, `brass`, `trumpet`, `sax`, `flute`, `choir`, `koto`, `guzheng`, `zither`, `sitar`, `harp`, `banjo`, `ukulele`, `marimba`, `kalimba`, `vibraphone`, `xylophone`, `glockenspiel`, `harpsichord`, `accordion`, `vocal`, `fx`, `sound design`, `noise`
+**Instruments** (shared across all kinds): `kick`, `snare`, `clap`, `snap`, `rimshot`, `hihat`, `open hat`, `crash`, `ride`, `cymbal`, `tom`, `conga`, `bongo`, `shaker`, `tambourine`, `cowbell`, `woodblock`, `clave`, `triangle`, `djembe`, `timbale`, `agogo`, `cabasa`, `drums`, `percussion`, `bass`, `808`, `sub`, `reese`, `lead`, `pad`, `pluck`, `arp`, `synth`, `keys`, `piano`, `organ`, `bell`, `guitar`, `strings`, `violin`, `cello`, `brass`, `trumpet`, `sax`, `flute`, `choir`, `koto`, `guzheng`, `zither`, `sitar`, `harp`, `banjo`, `ukulele`, `marimba`, `kalimba`, `vibraphone`, `xylophone`, `glockenspiel`, `harpsichord`, `accordion`, `vocal`, `singing`, `spoken`, `fx`, `sound design`, `noise`
 
 ## `Tags` schema
 

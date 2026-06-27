@@ -75,7 +75,7 @@ _CATEGORY_RULES: list[tuple[tuple[str, ...], str]] = [
     (("strings", "violin", "cello", "viola"), "strings"),
     (("brass", "trumpet", "sax", "trombone", "horn"), "brass"),
     # vocal
-    (("vocal", "vox", "voice", "acap", "sing"), "vocal"),
+    (("vocal", "vox", "voice", "acap", "sing", "spoken", "speech", "acapella"), "vocal"),
 ]
 
 # The name parser resolves a *fine-grained* label (piano/lead/guitar/…) so it can
@@ -100,6 +100,17 @@ _INSTRUMENT_CATEGORIES = {
 }
 # Sound-design categories that all roll up to the "fx" instrument tag.
 _FX_CATEGORIES = {"fx", "riser", "sweep", "impact", "drone", "texture", "ambience", "foley", "field", "noise"}
+
+# A `vocal` category carries a subtype instrument tag when the name says which:
+# `singing` vs `spoken`. A generic vocal cue (vox/voice/vocal) with no subtype
+# cue stays the bare `vocal` tag.
+_SPOKEN_CUES = (
+    "spoken", "speech", "speaking", "talk", "talking", "narration", "narrator",
+    "dialogue", "dialog", "voicememo", "voice memo", "podcast", "monologue",
+)
+_SINGING_CUES = (
+    "singing", "sing", "sung", "sings", "acapella", "acappella", "acap", "vocal chop",
+)
 
 # ---------------------------------------------------------------------------
 # BPM regexes
@@ -306,7 +317,15 @@ def classify_from_names(file_path: str | Path) -> dict[str, Any]:
     elif category in _FX_CATEGORIES:
         instruments = ["fx"]
     elif category == "vocal":
-        instruments = ["vocal"]
+        # Subtype from name cues (singing vs spoken); generic `vocal` otherwise.
+        # Normalise separators (_ - .) to spaces so "voice_memo" matches "voice memo".
+        low = re.sub(r"[_\-.]+", " ", " ".join(fragments).lower())
+        if any(cue in low for cue in _SPOKEN_CUES):
+            instruments = ["spoken"]
+        elif any(cue in low for cue in _SINGING_CUES):
+            instruments = ["singing"]
+        else:
+            instruments = ["vocal"]
 
     # --- Coarsen the category --- (piano/lead/guitar/… -> melodic; the specific
     # instrument is already captured above).

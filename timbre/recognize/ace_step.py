@@ -90,6 +90,7 @@ _INSTRUMENT_TO_CATEGORY: dict[str, tuple[str, ...]] = {
     # other keyboards
     "harpsichord": ("melodic",), "accordion": ("melodic",),
     "choir": ("vocal",), "vocal": ("vocal",),
+    "singing": ("vocal",), "spoken": ("vocal",),
     # sound design / fx — "noise" maps to the dedicated one-shot category first,
     # falling back to "fx" for kinds (loop/recording) that have no "noise" cat.
     "fx": ("fx",), "sound design": ("fx",), "noise": ("noise", "fx"),
@@ -258,7 +259,12 @@ _VOCAB_VARIANTS: dict[str, tuple[str, ...]] = {
     "bell": ("bells", "chime", "chimes"),
     "pad": ("pads",),
     "lead": ("leads",),
-    "vocal": ("vocals", "voice", "voices", "vox", "singing", "sung"),
+    # Generic vocal — `singing`/`spoken` carry their own (subtype) terms below,
+    # so they're kept off the generic `vocal` form to avoid double-matching.
+    "vocal": ("vocals", "voice", "voices", "vox"),
+    "singing": ("sung", "sings", "sung vocal", "vocal melody", "acapella"),
+    "spoken": ("speech", "speaking", "spoken word", "spoken-word", "talking",
+               "narration", "monologue", "dialogue"),
     "choir": ("choral", "chorale"),
     "brass": ("horns", "horn section"),
     "drums": ("drum",),

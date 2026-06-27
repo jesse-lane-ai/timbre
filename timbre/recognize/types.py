@@ -94,8 +94,9 @@ INSTRUMENT_VOCAB: tuple[str, ...] = (
     "marimba", "kalimba", "vibraphone", "xylophone", "glockenspiel",
     # other keyboard
     "harpsichord", "accordion",
-    # other
-    "vocal",
+    # vocal — `vocal` is the generic tag; `singing`/`spoken` mark the subtype
+    # when it can be told apart.
+    "vocal", "singing", "spoken",
     # sound design / fx
     "fx", "sound design", "noise",
 )
