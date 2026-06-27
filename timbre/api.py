@@ -179,6 +179,11 @@ def classify_many(
                         instruments.append(ins)
                 confidence = max(confidence, rec.confidence)
                 caption = rec.caption
+            # Instrument tags are the *specific* detail; drop any that merely
+            # restate the category (e.g. category=vocal + "vocal", category=bass
+            # + "bass", category=kick + "kick"). The category already carries it,
+            # so the tag is redundant — losslessly removed here.
+            instruments = [ins for ins in instruments if ins != category]
             out.append(
                 Tags(
                     filename=Path(display).name,

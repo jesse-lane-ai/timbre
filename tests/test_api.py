@@ -22,7 +22,9 @@ def test_classify_path_fuses_name_and_content(tmp_path):
     _kick(p)
     tags = timbre.classify(str(p), backend="heuristic")
     assert tags.category == "kick"
-    assert "kick" in tags.instruments
+    # "kick" restates the category, so it's deduped out; the family tag remains.
+    assert "kick" not in tags.instruments
+    assert "drums" in tags.instruments
     assert tags.bpm == 120.0
     assert tags.key == "C" and tags.scale == "minor"
     assert tags.duration is not None

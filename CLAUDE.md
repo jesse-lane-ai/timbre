@@ -88,6 +88,13 @@ missing — let that propagate, it's already actionable.
   model, `ace_step.py` maps free-text captions onto the category/instrument
   vocabularies in `recognize/types.py`.
 
+**`category` is the coarse role; `instruments` is the specific detail.** Pitched
+material collapses to a single `melodic` category (piano/guitar/lead/… live in
+`instruments`); `vocal` is the category with `singing`/`spoken` as instrument
+subtypes. Consequently `api.classify` drops any instrument tag equal to the final
+category (a `kick` one-shot is `category=kick, instruments=["drums"]`, not
+`["drums","kick"]`) — the category already states it, so the tag is redundant.
+
 **Vocabularies are the single source of truth** for valid categories/instruments:
 `ONESHOT_CATEGORIES` / `LOOP_CATEGORIES` / `RECORDING_CATEGORIES` and
 `INSTRUMENT_VOCAB` in `recognize/types.py`. `categories_for_kind(kind)` picks the
