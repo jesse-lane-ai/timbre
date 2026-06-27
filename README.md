@@ -232,12 +232,61 @@ CORS is wide open (`*`) — the server is meant to be run locally next to the ap
 
 ## Install
 
+> **New to Python virtual environments? Follow these steps in order.** They set up
+> an isolated environment so `timbre` doesn't interfere with other Python tools on
+> your machine. Run every command from the project's top-level `timbre/` folder (the
+> one containing `pyproject.toml`).
+
+**1. Move into the project folder:**
+
 ```sh
-pip install -e .                       # base (heuristic backend)
+cd /path/to/timbre        # the folder with pyproject.toml in it
+```
+
+**2. Create a virtual environment** (a private Python just for this project).
+This makes a `.venv/` folder:
+
+```sh
+python3 -m venv .venv
+```
+
+**3. Activate it.** Do this every time you open a new terminal to work on timbre:
+
+```sh
+source .venv/bin/activate     # macOS / Linux
+# .venv\Scripts\activate      # Windows PowerShell
+```
+
+Your prompt should now start with `(.venv)`.
+
+**4. Install timbre into the environment.** Pick the one line that matches what you
+need — the base install is enough to get started:
+
+```sh
+pip install -e .                       # base (heuristic backend) — start here
 pip install -e '.[clap]'               # + CLAP
 pip install -e '.[ace-step]'           # + ACE-Step captioner
 pip install -e '.[ace-step,quant]'     # + 8/4-bit quantization (CUDA only)
 ```
+
+**5. Check it worked:**
+
+```sh
+timbre --help
+timbre serve                           # start the HTTP server + UI
+```
+
+> **Common mistakes**
+>
+> - `timbre: command not found` — your virtual environment isn't active. Re-run the
+>   `source .venv/bin/activate` step (step 3). The `(.venv)` prefix must be visible.
+> - **Moved or renamed the project folder?** A virtual environment can't be moved.
+>   Delete it and start over from step 2: `rm -rf .venv`, then recreate.
+> - **Use straight quotes, not backticks:** write `'.[ace-step]'` with single
+>   quotes. Backticks (`` ` ``) tell the shell to *run* the text as a command and
+>   will fail.
+> - The argument is `.` (a dot, meaning "this folder"), **not** `timbre`. Use
+>   `pip install -e '.[ace-step]'`, not `pip install timbre[ace-step]`.
 
 ### ACE-Step quantization
 
