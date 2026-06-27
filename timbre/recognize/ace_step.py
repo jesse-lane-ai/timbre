@@ -66,27 +66,29 @@ _INSTRUMENT_TO_CATEGORY: dict[str, tuple[str, ...]] = {
     "drums": ("drum", "perc"), "percussion": ("perc", "drum"),
     "bass": ("bass",), "808": ("808", "bass"), "sub": ("sub", "bass"),
     "reese": ("reese", "bass"),
-    "lead": ("lead", "melody", "melodic"), "pad": ("pad", "melodic"),
-    "pluck": ("pluck", "melody", "melodic"), "arp": ("arp", "melodic"),
-    "synth": ("stab", "lead", "synth", "melody", "melodic"),
-    "keys": ("keys", "melody", "melodic"), "piano": ("piano", "keys", "melodic"),
-    "organ": ("keys", "melodic"), "bell": ("perc", "melody", "melodic"),
-    "guitar": ("guitar", "melodic"), "strings": ("strings", "melodic"),
-    "violin": ("strings", "melodic"), "cello": ("strings", "melodic"),
-    "brass": ("brass", "melodic"), "trumpet": ("brass", "melodic"),
-    "sax": ("brass", "melodic"), "flute": ("melody", "melodic"),
-    # plucked world / folk strings — pitched, plucked, not in the coarse vocab,
-    # so they resolve to the generic melodic/pluck roles.
-    "koto": ("pluck", "melody", "melodic"), "guzheng": ("pluck", "melody", "melodic"),
-    "zither": ("pluck", "melody", "melodic"), "sitar": ("pluck", "melody", "melodic"),
-    "harp": ("pluck", "melody", "melodic"), "banjo": ("pluck", "guitar", "melodic"),
-    "ukulele": ("pluck", "guitar", "melodic"),
-    # mallets / pitched percussion — bell-like pitched tone.
-    "marimba": ("melody", "perc", "melodic"), "kalimba": ("melody", "perc", "melodic"),
-    "vibraphone": ("melody", "perc", "melodic"), "xylophone": ("melody", "perc", "melodic"),
-    "glockenspiel": ("melody", "perc", "melodic"),
+    # Pitched/tonal instruments all resolve to the single coarse `melodic`
+    # category — the specific instrument is already carried in `instruments`.
+    "lead": ("melodic",), "pad": ("melodic",),
+    "pluck": ("melodic",), "arp": ("melodic",),
+    "synth": ("melodic",),
+    "keys": ("melodic",), "piano": ("melodic",),
+    "organ": ("melodic",), "bell": ("perc", "melodic"),
+    "guitar": ("melodic",), "strings": ("melodic",),
+    "violin": ("melodic",), "cello": ("melodic",),
+    "brass": ("melodic",), "trumpet": ("melodic",),
+    "sax": ("melodic",), "flute": ("melodic",),
+    # plucked world / folk strings — pitched, plucked.
+    "koto": ("melodic",), "guzheng": ("melodic",),
+    "zither": ("melodic",), "sitar": ("melodic",),
+    "harp": ("melodic",), "banjo": ("melodic",),
+    "ukulele": ("melodic",),
+    # mallets / pitched percussion — struck, so prefer the drum `perc` bucket,
+    # falling back to `melodic` for kinds without `perc`.
+    "marimba": ("perc", "melodic"), "kalimba": ("perc", "melodic"),
+    "vibraphone": ("perc", "melodic"), "xylophone": ("perc", "melodic"),
+    "glockenspiel": ("perc", "melodic"),
     # other keyboards
-    "harpsichord": ("keys", "melodic"), "accordion": ("keys", "melodic"),
+    "harpsichord": ("melodic",), "accordion": ("melodic",),
     "choir": ("vocal",), "vocal": ("vocal",),
     # sound design / fx — "noise" maps to the dedicated one-shot category first,
     # falling back to "fx" for kinds (loop/recording) that have no "noise" cat.
@@ -120,8 +122,7 @@ LOOP_CONTEXT_BARS = 2
 # Tonal/melodic one-shot categories whose verdict on unpitched audio is suspect
 # — the trigger for a loop re-caption.
 _LOOP_CONTEXT_TONAL = {
-    "bass", "sub", "808", "reese", "stab", "melody", "lead", "pad", "pluck",
-    "arp", "chord", "keys", "piano", "organ", "synth",
+    "bass", "sub", "808", "reese", "melodic",
 }
 # Categories that, when the *loop* caption lands on them, confirm a drum hit and
 # override the tonal verdict.
@@ -244,6 +245,9 @@ def _categories(kind: str) -> tuple[str, ...]:
 # "bass"->"bas", "brass"->"bras"); every form stays whole-word anchored, so
 # `sub` still won't fire on "subtle".
 _VOCAB_VARIANTS: dict[str, tuple[str, ...]] = {
+    # `melodic` is the coarse pitched-role category; captions usually say
+    # "melody"/"melodic line" rather than the bare term.
+    "melodic": ("melody", "melodies"),
     "strings": ("string",),
     "synth": ("synthesizer", "synthesizers", "synthesised", "synthesized", "synth pad", "synth lead"),
     "keys": ("keyboard", "keyboards"),

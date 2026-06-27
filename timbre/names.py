@@ -78,11 +78,26 @@ _CATEGORY_RULES: list[tuple[tuple[str, ...], str]] = [
     (("vocal", "vox", "voice", "acap", "sing"), "vocal"),
 ]
 
-# Sub-category labels, used to derive instrument tags from a category.
+# The name parser resolves a *fine-grained* label (piano/lead/guitar/…) so it can
+# still derive a precise instrument tag; `_COARSEN` then folds the pitched/tonal
+# labels into the single `melodic` category for the public `category` field. The
+# fine label is kept only long enough to pick the instrument.
+_COARSEN = {
+    "stab": "melodic", "melody": "melodic", "lead": "melodic", "pad": "melodic",
+    "pluck": "melodic", "arp": "melodic", "chord": "melodic", "synth": "melodic",
+    "keys": "melodic", "piano": "melodic", "guitar": "melodic",
+    "strings": "melodic", "brass": "melodic",
+}
+
+# Sub-category labels, used to derive instrument tags from a (fine) category.
 _DRUM_CATEGORIES = {"kick", "snare", "clap", "snap", "hat", "tom", "crash", "ride", "rim", "perc", "drums"}
-_MELODIC_CATEGORIES = {"lead", "synth", "pad", "pluck", "chord", "melody", "keys", "piano", "arp", "stab"}
-# Categories that ARE a single instrument tag (the tag == the category name).
-_INSTRUMENT_CATEGORIES = {"bass", "sub", "reese", "808", "guitar", "strings", "brass"}
+# Fine labels whose name *is* a concrete instrument tag (the tag == the label).
+# Pitched roles that aren't instruments (melody/chord/stab/arp) are absent — they
+# coarsen to `melodic` and contribute no instrument tag.
+_INSTRUMENT_CATEGORIES = {
+    "bass", "sub", "reese", "808", "guitar", "strings", "brass",
+    "lead", "synth", "pad", "pluck", "keys", "piano",
+}
 # Sound-design categories that all roll up to the "fx" instrument tag.
 _FX_CATEGORIES = {"fx", "riser", "sweep", "impact", "drone", "texture", "ambience", "foley", "field", "noise"}
 
@@ -279,21 +294,24 @@ def classify_from_names(file_path: str | Path) -> dict[str, Any]:
         if key_conf >= 0.9:
             break
 
-    # --- Instruments ---
+    # --- Instruments --- (derived from the *fine* label, before coarsening)
     instruments: list[str] = []
     if category in _DRUM_CATEGORIES:
         if category not in ("drums", "perc"):
             instruments = sorted({category, "drums"})
         else:
             instruments = ["drums"]
-    elif category in _MELODIC_CATEGORIES:
-        instruments = [category]
     elif category in _INSTRUMENT_CATEGORIES:
         instruments = [category]
     elif category in _FX_CATEGORIES:
         instruments = ["fx"]
     elif category == "vocal":
         instruments = ["vocal"]
+
+    # --- Coarsen the category --- (piano/lead/guitar/… -> melodic; the specific
+    # instrument is already captured above).
+    if category is not None:
+        category = _COARSEN.get(category, category)
 
     # --- Overall confidence ---
     fired = [c for c in (kind_conf, cat_conf, bpm_conf, key_conf) if c > 0]

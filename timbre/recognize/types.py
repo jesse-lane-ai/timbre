@@ -22,15 +22,19 @@ KINDS: tuple[str, ...] = ("one-shot", "loop", "recording", "unknown")
 # matching the file's already-known `kind`. `unknown` kind files are treated as
 # one-shots for category purposes (the safer, smaller vocabulary). Use
 # `categories_for_kind()` rather than indexing these directly.
+#
+# `category` is the *coarse role*; fine-grained pitched detail (piano vs guitar
+# vs lead vs pad) lives in `instruments`, not here. So every pitched/tonal role
+# collapses to the single `melodic` bucket — there is deliberately no `piano`,
+# `lead`, `chord`, `stab`, … category. A piano one-shot is `category="melodic"`,
+# `instruments=["piano"]`.
 ONESHOT_CATEGORIES: tuple[str, ...] = (
     # drums
     "kick", "snare", "clap", "snap", "hat", "tom", "crash", "ride", "rim", "perc",
     # bass
     "bass", "808", "sub", "reese",
-    # melodic / synth
-    "stab", "melody", "lead", "pad", "pluck", "arp", "chord", "keys", "piano",
-    # acoustic
-    "guitar", "strings", "brass",
+    # melodic / tonal (instrument detail goes in `instruments`)
+    "melodic",
     # vocal
     "vocal",
     # sound design / fx
@@ -39,10 +43,8 @@ ONESHOT_CATEGORIES: tuple[str, ...] = (
 LOOP_CATEGORIES: tuple[str, ...] = (
     # drums / bass
     "drum", "perc", "bass", "sub", "808",
-    # melodic / synth
-    "melodic", "chord", "lead", "pad", "arp", "synth", "keys", "piano",
-    # acoustic
-    "guitar", "strings", "brass",
+    # melodic / tonal (instrument detail goes in `instruments`)
+    "melodic",
     # vocal
     "vocal",
     # sound design / fx
@@ -52,7 +54,7 @@ LOOP_CATEGORIES: tuple[str, ...] = (
 )
 # Long-form captures: coarse roles for what the whole recording mostly is.
 RECORDING_CATEGORIES: tuple[str, ...] = (
-    "full", "vocal", "instrument", "drum", "melodic", "chord",
+    "full", "vocal", "instrument", "drum", "melodic",
     "ambience", "field", "foley", "fx",
 )
 

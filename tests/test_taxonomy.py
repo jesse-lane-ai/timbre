@@ -26,14 +26,14 @@ def test_recording_kind_from_name(name):
 @pytest.mark.parametrize(
     "name,category",
     [
-        ("lead_synth_C.wav", "lead"),
-        ("pluck_one.wav", "pluck"),
+        ("lead_synth_C.wav", "melodic"),  # pitched roles coarsen to "melodic"
+        ("pluck_one.wav", "melodic"),
         ("riser_fx.wav", "riser"),
         ("sub_bass_90.wav", "sub"),
         ("808_boom.wav", "808"),          # 808 is its own category now, not "kick"
-        ("guitar_strum.wav", "guitar"),
-        ("strings_swell.wav", "strings"),
-        ("brass_hit.wav", "brass"),
+        ("guitar_strum.wav", "melodic"),
+        ("strings_swell.wav", "melodic"),
+        ("brass_hit.wav", "melodic"),
         ("foley_steps.wav", "foley"),
     ],
 )

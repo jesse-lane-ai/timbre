@@ -44,13 +44,13 @@ CASES = [
     (
         "Synth Leads / Am / synth_lead_stab",
         "/Library/Synth Leads/Am/synth_lead_stab.wav",
-        {"kind": "one-shot", "key": "A", "scale": "minor", "category": "lead"},
+        {"kind": "one-shot", "key": "A", "scale": "minor", "category": "melodic"},
     ),
     # 5. G_maj_pad_80bpm — all in filename
     (
         "G_maj_pad_80bpm",
         "/Library/Pads/G_maj_pad_80bpm.wav",
-        {"key": "G", "scale": "major", "bpm": 80.0, "category": "pad"},
+        {"key": "G", "scale": "major", "bpm": 80.0, "category": "melodic"},
     ),
     # 6. fx_riser_oneshot_Fm — kind + key + scale + category all in filename
     (
@@ -99,7 +99,7 @@ CASES = [
     (
         "Db major (-> C# major)",
         "/Packs/Db major/synth_chord.wav",
-        {"key": "C#", "scale": "major", "category": "chord"},
+        {"key": "C#", "scale": "major", "category": "melodic"},
     ),
     # 11. "s"=sharp convention (Loopmasters/Splice), no scale token
     (

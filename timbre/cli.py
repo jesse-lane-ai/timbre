@@ -99,12 +99,11 @@ _CATCHALL_CATEGORIES = {"fx", "full"}
 # (kick/snare/hat/clap/perc/...) are deliberately excluded: the heuristic nails
 # those, so they stay local and fast.
 _PITCHED_CATEGORIES = {
-    # one-shot bass + melodic/synth + acoustic + vocal
+    # bass family + the single coarse melodic/tonal bucket + vocal. (All the
+    # former pitched roles — lead/pad/pluck/piano/guitar/… — now collapse into
+    # `melodic`, so naming them here is no longer necessary.)
     "bass", "sub", "808", "reese",
-    "stab", "melody", "lead", "pad", "pluck", "arp", "chord", "keys", "piano",
-    "organ", "guitar", "strings", "brass", "vocal",
-    # loop-only labels
-    "melodic", "synth",
+    "melodic", "vocal",
 }
 
 

@@ -32,7 +32,7 @@ def test_escalate_audio_guessed_pitched_category():
 def test_no_escalate_name_confirmed_pitched_category():
     # The filename itself names the category -> trust it, don't escalate.
     assert _needs_escalation(_tags("bass", path="deep_bass_hit.wav")) is False
-    assert _needs_escalation(_tags("piano", path="grand_piano.wav")) is False
+    assert _needs_escalation(_tags("melodic", path="grand_piano.wav")) is False
 
 
 def test_no_escalate_drum_categories():

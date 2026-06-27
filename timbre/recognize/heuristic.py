@@ -5,17 +5,15 @@ Reuses the spectral/temporal features already computed by
 so audio is loaded at most once per file):
 
   * Loops: relabel ``detect_warp_via_analysis``'s beats/melodic/harmonic/
-    vocal/complex into the loop category vocabulary (drum/melodic/chord/
-    vocal/full).
+    vocal/complex into the loop category vocabulary (drum/melodic/vocal/full).
   * One-shots: classify with spectral centroid / rolloff / zero-crossing rate
     / log-attack-time / percussive ratio into the one-shot vocabulary
-    (kick/snare/hat/clap/tom/crash/ride/perc/bass/vocal/melody/...).
+    (kick/snare/hat/clap/tom/crash/ride/perc/bass/vocal/melodic/...).
 
 Derives ``instruments`` only where the category itself names a concrete
 instrument it's reliable on (drums → ``drums`` + the specific hit, bass
-family, vocal, and the named acoustic/keyboard categories). The abstract
-synth-role categories (``stab``/``melody``/``pad``/``lead``/``arp``/...) carry
-no instrument tag — that's left to the embedding/generative backends.
+family, and vocal). The coarse ``melodic`` bucket carries no instrument tag —
+naming the pitched instrument is left to the embedding/generative backends.
 Confidence is a fixed per-rule constant (module-level tuning knobs below),
 not a continuous score.
 """
@@ -35,10 +33,11 @@ _DRUM_INSTRUMENT_CATEGORIES = {
     "kick", "snare", "clap", "snap", "hat", "tom", "crash", "ride", "rim",
     "perc", "drum",
 }
-# Categories whose name *is* the instrument tag (one-shot + loop vocab).
+# Categories whose name *is* the instrument tag (one-shot + loop vocab). The
+# heuristic only ever emits the bass family and vocal from these; the coarse
+# `melodic` bucket carries no instrument (the heuristic can't name it).
 _SELF_INSTRUMENT_CATEGORIES = {
-    "bass", "808", "sub", "reese", "guitar", "strings", "brass",
-    "piano", "keys", "vocal",
+    "bass", "808", "sub", "reese", "vocal",
 }
 
 # --- one-shot spectral thresholds (module constants, tunable) --------------
@@ -87,7 +86,7 @@ CONFIDENCE = 0.55
 _WARP_TO_LOOP_CATEGORY: dict[str, str] = {
     "beats": "drum",
     "melodic": "melodic",
-    "harmonic": "chord",
+    "harmonic": "melodic",
     "vocal": "vocal",
     "complex": "full",
 }
@@ -134,9 +133,11 @@ def _classify_oneshot(cache: audio_analysis._AnalysisCache) -> str:
     ):
         return "vocal"
 
-    # Tonal, stable single pitch -> melodic stab (fast) or sustained melody.
+    # Tonal, stable single pitch -> the coarse melodic bucket (the fast/sustained
+    # stab-vs-melody split now lives in `instruments`, which the heuristic leaves
+    # to the model backends for pitched material).
     if voiced_ratio > 0.5 and pitch_stability < 0.05:
-        return "stab" if fast_attack else "melody"
+        return "melodic"
 
     # Low/boomy but not fast-attack -> sustained bass.
     if centroid <= LOW_CENTROID_HZ:

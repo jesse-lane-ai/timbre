@@ -18,9 +18,9 @@ for architecture and internals see [`CLAUDE.md`](../CLAUDE.md).
 
 | Kind | Categories |
 |---|---|
-| `one-shot` | `kick`, `snare`, `clap`, `snap`, `hat`, `tom`, `crash`, `ride`, `rim`, `perc`, `bass`, `808`, `sub`, `reese`, `stab`, `melody`, `lead`, `pad`, `pluck`, `arp`, `chord`, `keys`, `piano`, `guitar`, `strings`, `brass`, `vocal`, `fx`, `riser`, `sweep`, `impact`, `drone`, `texture`, `ambience`, `foley`, `noise` |
-| `loop` | `drum`, `perc`, `bass`, `sub`, `808`, `melodic`, `chord`, `lead`, `pad`, `arp`, `synth`, `keys`, `piano`, `guitar`, `strings`, `brass`, `vocal`, `fx`, `riser`, `texture`, `ambience`, `foley`, `full` |
-| `recording` | `full`, `vocal`, `instrument`, `drum`, `melodic`, `chord`, `ambience`, `field`, `foley`, `fx` |
+| `one-shot` | `kick`, `snare`, `clap`, `snap`, `hat`, `tom`, `crash`, `ride`, `rim`, `perc`, `bass`, `808`, `sub`, `reese`, `melodic`, `vocal`, `fx`, `riser`, `sweep`, `impact`, `drone`, `texture`, `ambience`, `foley`, `noise` |
+| `loop` | `drum`, `perc`, `bass`, `sub`, `808`, `melodic`, `vocal`, `fx`, `riser`, `texture`, `ambience`, `foley`, `full` |
+| `recording` | `full`, `vocal`, `instrument`, `drum`, `melodic`, `ambience`, `field`, `foley`, `fx` |
 
 **Instruments** (shared across all kinds): `kick`, `snare`, `clap`, `snap`, `rimshot`, `hihat`, `open hat`, `crash`, `ride`, `cymbal`, `tom`, `conga`, `bongo`, `shaker`, `tambourine`, `cowbell`, `woodblock`, `clave`, `triangle`, `djembe`, `timbale`, `agogo`, `cabasa`, `drums`, `percussion`, `bass`, `808`, `sub`, `reese`, `lead`, `pad`, `pluck`, `arp`, `synth`, `keys`, `piano`, `organ`, `bell`, `guitar`, `strings`, `violin`, `cello`, `brass`, `trumpet`, `sax`, `flute`, `choir`, `koto`, `guzheng`, `zither`, `sitar`, `harp`, `banjo`, `ukulele`, `marimba`, `kalimba`, `vibraphone`, `xylophone`, `glockenspiel`, `harpsichord`, `accordion`, `vocal`, `fx`, `sound design`, `noise`
 

@@ -113,5 +113,5 @@ def test_disabled_via_env(tmp_path, monkeypatch):
     rec = _recognizer()
     out = rec.recognize([FileProbe(path=src, filename="mystery_hit.wav",
                                    duration=0.3, kind="one-shot")])
-    # With the pass off, the raw tonal verdict stands.
-    assert out[0].category == "chord"
+    # With the pass off, the raw tonal verdict stands ("organ chord" -> melodic).
+    assert out[0].category == "melodic"

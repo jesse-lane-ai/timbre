@@ -98,14 +98,14 @@ def test_classify_oneshot_vocal():
     assert _classify_oneshot(cache) == "vocal"
 
 
-def test_classify_oneshot_melody_stab():
+def test_classify_oneshot_melodic_fast_attack():
     cache = _FakeCache(voiced_ratio=0.6, pitch_stability=0.01, formant_strength=0.1, log_attack_time=-2.0)
-    assert _classify_oneshot(cache) == "stab"
+    assert _classify_oneshot(cache) == "melodic"
 
 
-def test_classify_oneshot_melody_sustained():
+def test_classify_oneshot_melodic_sustained():
     cache = _FakeCache(voiced_ratio=0.6, pitch_stability=0.01, formant_strength=0.1, log_attack_time=0.0)
-    assert _classify_oneshot(cache) == "melody"
+    assert _classify_oneshot(cache) == "melodic"
 
 
 def test_classify_oneshot_bass():
@@ -128,7 +128,7 @@ def test_classify_oneshot_fx_fallback():
 @pytest.mark.parametrize("warp,expected", [
     ("beats", "drum"),
     ("melodic", "melodic"),
-    ("harmonic", "chord"),
+    ("harmonic", "melodic"),
     ("vocal", "vocal"),
     ("complex", "full"),
 ])
@@ -161,10 +161,8 @@ def test_heuristic_recognizer_batch(monkeypatch):
     ("perc", ["drums"]),
     ("kick", ["drums", "kick"]),
     ("bass", ["bass"]),
-    ("piano", ["piano"]),
     ("vocal", ["vocal"]),
-    ("stab", []),       # abstract synth-role — no instrument basis
-    ("melody", []),
+    ("melodic", []),    # coarse pitched bucket — heuristic names no instrument
     ("fx", []),
 ])
 def test_heuristic_instruments_for_category(category, expected):
