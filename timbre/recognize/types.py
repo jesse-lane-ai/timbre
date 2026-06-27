@@ -93,7 +93,9 @@ INSTRUMENT_VOCAB: tuple[str, ...] = (
     # other keyboard
     "harpsichord", "accordion",
     # other
-    "vocal", "fx",
+    "vocal",
+    # sound design / fx
+    "fx", "sound design", "noise",
 )
 
 

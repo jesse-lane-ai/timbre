@@ -87,7 +87,10 @@ _INSTRUMENT_TO_CATEGORY: dict[str, tuple[str, ...]] = {
     "glockenspiel": ("melody", "perc", "melodic"),
     # other keyboards
     "harpsichord": ("keys", "melodic"), "accordion": ("keys", "melodic"),
-    "choir": ("vocal",), "vocal": ("vocal",), "fx": ("fx",),
+    "choir": ("vocal",), "vocal": ("vocal",),
+    # sound design / fx — "noise" maps to the dedicated one-shot category first,
+    # falling back to "fx" for kinds (loop/recording) that have no "noise" cat.
+    "fx": ("fx",), "sound design": ("fx",), "noise": ("noise", "fx"),
 }
 
 
@@ -255,6 +258,8 @@ _VOCAB_VARIANTS: dict[str, tuple[str, ...]] = {
     "choir": ("choral", "chorale"),
     "brass": ("horns", "horn section"),
     "drums": ("drum",),
+    "sound design": ("sound-design", "sfx", "sound effect", "sound effects", "sound fx"),
+    "noise": ("static", "hiss", "white noise", "surface noise"),
 }
 
 
