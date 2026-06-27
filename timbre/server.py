@@ -113,6 +113,32 @@ def _vocab() -> dict:
         "instruments": list(INSTRUMENT_VOCAB),
     }
 
+
+# Documented HTTP surface — the single source of truth for the route reference.
+# Each entry is (method, path, summary). The dispatch in do_GET/do_POST/do_DELETE
+# is hand-written (stdlib handler), so a test (tests/test_http_routes.py) asserts
+# this table and the actual dispatch stay in sync. `docs/reference.md` is
+# generated from here; edit routes here, then run `python scripts/gen_docs.py`.
+ROUTES: tuple[tuple[str, str, str], ...] = (
+    ("GET", "/", "library-manager web app (HTML); also served at /ui and /index.html"),
+    ("GET", "/backends", "available backend names"),
+    ("GET", "/vocab", "taxonomy: kinds, per-kind categories, instruments"),
+    ("GET", "/health", '{"status": "ok"} liveness probe'),
+    ("GET", "/audio?path=…", "a stored sample's raw audio bytes (UI player; store files only)"),
+    ("GET", "/tags?category=…&bpm_min=…&limit=…", "filtered list of stored Tags"),
+    ("GET", "/tag?path=…", "one stored Tags entry"),
+    ("GET", "/collections", "list collections with member counts"),
+    ("POST", "/classify?backend=…", "classify the posted audio body → Tags (stateless, not persisted); name hint via X-Filename header"),
+    ("POST", "/import?backend=…", "classify + cache the bytes + persist → stored Tags (path points at the cached blob)"),
+    ("POST", "/tag", 'create-or-update a stored entry, marks it edited; body: {"path": …, "category": …, …}'),
+    ("POST", "/collections", 'create a collection; body: {"name": "drums"}'),
+    ("POST", "/collections/add", 'add members; body: {"collection": "drums", "paths": [...]}'),
+    ("POST", "/collections/remove", 'remove members; body: {"collection": "drums", "paths": [...]}'),
+    ("POST", "/collections/rename", 'rename; body: {"name": "drums", "new_name": "percussion"}'),
+    ("DELETE", "/tag?path=…", "delete a stored entry"),
+    ("DELETE", "/collections?name=…", "delete a collection (not the samples)"),
+)
+
 # Query params that map straight to store.query kwargs, with their coercions.
 _FILTER_COERCE = {
     "category": str, "kind": str, "key": str, "scale": str, "backend": str,

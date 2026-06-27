@@ -22,6 +22,12 @@ It fuses two passes:
 
 timbre exposes the same core through three surfaces.
 
+> **Which doc do I want?**
+> - **Installing or using the CLI?** You're in the right place — read on.
+> - **Building against timbre** (HTTP / Python API, browser apps)? → [`docs/api.md`](docs/api.md)
+> - **Exact vocab / CLI flags / HTTP routes?** → [`docs/reference.md`](docs/reference.md) (auto-generated from code)
+> - **Hacking on internals?** → [`CLAUDE.md`](CLAUDE.md)
+
 ## Python API
 
 ```python
@@ -32,6 +38,9 @@ tags = timbre.classify(raw_bytes, filename="x.wav",         # bytes work too
                        backend="ace-step")
 many = timbre.classify_many(paths, backend="heuristic")     # batch (amortizes model load)
 ```
+
+Querying/editing the store and collections from Python, plus the full HTTP
+contract for browser clients, live in **[`docs/api.md`](docs/api.md)**.
 
 ## CLI
 
@@ -114,14 +123,8 @@ timbre.update("/abs/kick.wav", category="snare", bpm=92)
 timbre.delete("/abs/kick.wav")
 ```
 
-**HTTP** (`timbre serve`):
-
-| Method | Endpoint | Body / query |
-|---|---|---|
-| `GET` | `/tags?category=kick&bpm_min=80&limit=50` | filters |
-| `GET` | `/tag?path=/abs/kick.wav` | one entry |
-| `POST` | `/tag` | `{"path": "...", "category": "snare", "instruments": ["snare"]}` |
-| `DELETE` | `/tag?path=/abs/kick.wav` | — |
+The same operations are exposed over HTTP (`/tags`, `/tag`) for browser clients —
+see **[`docs/api.md`](docs/api.md)**.
 
 **Collections** group samples by name (a sample can be in many). They're
 available from all three surfaces:
@@ -143,16 +146,9 @@ timbre.collections()                        # [{"name","count",...}, ...]
 timbre.query(collection="drums")
 ```
 
-| Method | Endpoint | Body / query |
-|---|---|---|
-| `GET` | `/collections` | list with member counts |
-| `POST` | `/collections` | `{"name": "drums"}` |
-| `POST` | `/collections/add` | `{"collection": "drums", "paths": [...]}` |
-| `POST` | `/collections/remove` | `{"collection": "drums", "paths": [...]}` |
-| `POST` | `/collections/rename` | `{"name": "drums", "new_name": "percussion"}` |
-| `DELETE` | `/collections?name=drums` | — |
-
-You can still query the DB directly too:
+Collections are also exposed over HTTP (`/collections` + `/add`/`/remove`/
+`/rename`) — see **[`docs/api.md`](docs/api.md)**. You can query the DB directly
+too:
 
 ```sh
 sqlite3 ~/.local/share/timbre/tags.db "SELECT category, count(*) FROM tags GROUP BY category"
@@ -200,35 +196,16 @@ Manually-edited rows are flagged with a ✎ in the list.
 
 ## HTTP server
 
-For browser clients (e.g. a drag-and-drop sample app) that can't import Python
-or shell out:
+`timbre serve` exposes the classifier and store over HTTP for browser clients
+(e.g. a drag-and-drop sample app) that can't import Python or shell out:
 
 ```sh
 timbre serve --port 8765
 ```
 
-```js
-// POST the File straight as the request body
-const res = await fetch("http://127.0.0.1:8765/classify?backend=heuristic", {
-  method: "POST",
-  headers: { "X-Filename": file.name },
-  body: file,
-});
-const { ok, data } = await res.json();
-```
-
-CORS is wide open (`*`) — the server is meant to be run locally next to the app.
-
-| Method | Endpoint | Returns |
-|---|---|---|
-| `GET` | `/` · `/ui` | the library-manager web app (HTML) |
-| `GET` | `/backends` | available backend names |
-| `GET` | `/vocab` | taxonomy: kinds, per-kind categories, instruments |
-| `GET` | `/health` | `{"status": "ok"}` |
-| `GET` | `/audio?path=…` | a stored sample's raw audio bytes (for the UI player; only files present in the store) |
-| `POST` | `/classify?backend=…` | a `Tags` object (audio file as raw body; stateless, not persisted) |
-| `POST` | `/import?backend=…` | classify + cache the bytes + persist; returns the stored `Tags` (path points at the cached blob) |
-| `GET` · `POST` · `DELETE` | `/collections` (+ `/collections/add`, `/collections/remove`) | manage named sample collections |
+The JS quickstart, CORS notes, and the full endpoint table are in
+**[`docs/api.md`](docs/api.md)** (and the generated route table in
+[`docs/reference.md`](docs/reference.md)).
 
 ## Install
 

@@ -2,6 +2,13 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> **Doc map.** This file = architecture & internals (you are here). User-facing
+> install/CLI = [`README.md`](README.md). Integration (HTTP/Python API) =
+> [`docs/api.md`](docs/api.md). Exhaustive vocab/CLI/HTTP tables =
+> [`docs/reference.md`](docs/reference.md) — **generated**, never hand-edit it:
+> run `python scripts/gen_docs.py` after changing the vocab (`recognize/types.py`),
+> CLI (`cli.py`), or HTTP routes (`server.py` `ROUTES`). CI fails if it's stale.
+
 ## What this is
 
 `timbre` is a content + filename based audio sample classifier exposed through three
