@@ -1,0 +1,19 @@
+# Regenerate docs/reference.md whenever its code sources change, so the
+# generated reference can never be committed stale. The same staleness check
+# also runs in CI via tests/test_docs.py — this hook just fixes it for you
+# locally instead of failing the build.
+#
+# Setup (once):  pip install -e '.[dev]' && pre-commit install
+#
+# Uses `language: system`, so it runs the `python3` on your PATH — commit from
+# the activated virtualenv (the one with timbre + click installed). Committing
+# outside the venv fails with ModuleNotFoundError; just `source .venv/bin/activate`.
+repos:
+  - repo: local
+    hooks:
+      - id: gen-docs
+        name: regenerate docs/reference.md
+        entry: python3 scripts/gen_docs.py
+        language: system
+        pass_filenames: false
+        files: '^(timbre/recognize/types\.py|timbre/api\.py|timbre/cli\.py|timbre/server\.py|scripts/gen_docs\.py)$'

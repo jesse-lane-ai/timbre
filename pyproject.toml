@@ -46,6 +46,12 @@ quant = [
     "bitsandbytes>=0.43",
     "accelerate>=0.30",
 ]
+# Contributor tooling: test runner + the pre-commit hook that regenerates
+# docs/reference.md (see .pre-commit-config.yaml).
+dev = [
+    "pytest>=7",
+    "pre-commit>=3",
+]
 
 [project.scripts]
 timbre = "timbre.cli:cli"

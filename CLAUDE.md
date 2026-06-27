@@ -44,10 +44,17 @@ pip install -e .                  # heuristic backend only (no torch)
 pip install -e '.[clap]'          # + clap backend
 pip install -e '.[ace-step]'      # + ace-step captioner
 pip install -e '.[quant]'         # + 4bit/8bit quantization for ace-step (CUDA only)
+pip install -e '.[dev]'           # + pytest + pre-commit (contributor tooling)
 ```
 
+After `pip install -e '.[dev]'`, run `pre-commit install` once. The hook
+regenerates `docs/reference.md` when its code sources change (commit from the
+activated venv). See [`docs/reference.md`](docs/reference.md) — generated, never
+hand-edited.
+
 CI (`.github/workflows`) runs `pytest -q` on Python 3.11/3.12/3.13 after
-`apt-get install libsndfile1`.
+`apt-get install libsndfile1`. `tests/test_docs.py` fails the build if
+`docs/reference.md` is stale or `server.ROUTES` drifts from the dispatch.
 
 ## Architecture
 
