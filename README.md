@@ -57,10 +57,10 @@ Every command takes `--json` and returns `{"ok": true, "data": ...}` or
 `{"ok": false, "error": ...}`.
 
 **`scan` defaults to `--backend auto`**, which adapts to what you've installed:
-if both `clap` and `ace-step` are available it runs **both and unions their
-tags** (instruments merged, genres collected as a set with each tag's source);
-if only one is installed it pairs that one with the always-present `heuristic`;
-if neither, it's `heuristic` alone. Pass an explicit `--backend` to force one.
+it always runs the cheap `heuristic` **plus** whichever of `clap` and `ace-step`
+are available, then **unions their verdicts** (category by majority vote,
+instruments merged, genres collected as a set with each tag's source). Pass an
+explicit `--backend` to force a single one.
 
 ### Persistent store (on by default)
 

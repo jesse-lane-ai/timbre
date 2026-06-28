@@ -111,27 +111,27 @@ _MERGE_PRECEDENCE = {"ace-step": 0, "clap": 1, "heuristic": 2}
 def _select_recognizers(backend: str) -> list[tuple[str, "Recognizer"]]:
     """Resolve a backend spec to the (name, recognizer) list to run.
 
-    ``"auto"`` adapts to what's installed: both optional backends → union them
-    (heuristic not needed); exactly one → that one **plus** heuristic (so the
-    cheap, percussion-reliable pass backs up a single model); neither →
-    heuristic alone. Any other value is a single explicit backend (errors if its
-    optional dependency is missing, as before)."""
+    ``"auto"`` adapts to what's installed: it always includes the cheap,
+    percussion-reliable ``heuristic`` in the vote, plus whichever optional
+    backends import cleanly (clap, ace-step). So with both extras it runs all
+    three; with one, that one + heuristic; with neither, heuristic alone. Any
+    other value is a single explicit backend (errors if its optional dependency
+    is missing, as before)."""
     if backend != "auto":
         if backend == "heuristic":
             return [("heuristic", HeuristicRecognizer())]
         return [(backend, get_recognizer(backend))]
 
-    optional: list[tuple[str, object]] = []
+    selected: list[tuple[str, object]] = []
     for name in _OPTIONAL_BACKENDS:
         try:
-            optional.append((name, get_recognizer(name)))
+            selected.append((name, get_recognizer(name)))
         except Exception:
             pass  # dependency not installed — skip this backend
-    if len(optional) >= 2:
-        return optional
-    if len(optional) == 1:
-        return [optional[0], ("heuristic", HeuristicRecognizer())]
-    return [("heuristic", HeuristicRecognizer())]
+    # heuristic always votes (free, and the most reliable on dry percussion,
+    # where the model backends mislabel hits as tonal).
+    selected.append(("heuristic", HeuristicRecognizer()))
+    return selected
 
 
 def _merge_recognitions(recs: list["Recognition | None"]) -> "Recognition | None":

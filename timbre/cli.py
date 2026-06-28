@@ -137,9 +137,9 @@ def _needs_escalation(tags) -> bool:
 @cli.command("scan")
 @click.argument("folder")
 @click.option("--backend", default="auto", show_default=True,
-              help="Recognizer backend, or 'auto' (default): union clap+ace-step "
-                   "if both installed, else the one available + heuristic, else "
-                   "heuristic. See `timbre backends`.")
+              help="Recognizer backend, or 'auto' (default): heuristic plus "
+                   "whichever of clap/ace-step are installed, unioning their "
+                   "verdicts. See `timbre backends`.")
 @click.option("--escalate", default=None, metavar="BACKEND",
               help="Progressive scan: after the primary backend, re-classify only the "
                    "files it left with no category/instruments using this heavier backend "

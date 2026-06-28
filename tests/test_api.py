@@ -72,8 +72,8 @@ def test_select_recognizers_auto_adapts_to_availability(monkeypatch):
 
     monkeypatch.setattr(api, "get_recognizer", fake_get)
 
-    avail = {"clap", "ace-step"}                       # both -> union, no heuristic
-    assert [n for n, _ in api._select_recognizers("auto")] == ["clap", "ace-step"]
+    avail = {"clap", "ace-step"}                       # both -> all three vote
+    assert [n for n, _ in api._select_recognizers("auto")] == ["clap", "ace-step", "heuristic"]
 
     avail = {"clap"}                                   # one -> that + heuristic
     assert [n for n, _ in api._select_recognizers("auto")] == ["clap", "heuristic"]
