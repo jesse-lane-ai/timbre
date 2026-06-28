@@ -201,7 +201,7 @@ Classify a single audio file at PATH.
 Recursively classify every audio file under FOLDER.
 
 - `FOLDER` — positional argument
-- `--backend` — Recognizer backend (see `timbre backends`).
+- `--backend` — Recognizer backend, or 'auto' (default): union clap+ace-step if both installed, else the one available + heuristic, else heuristic. See `timbre backends`.
 - `--escalate` — Progressive scan: after the primary backend, re-classify only the files it left with no category/instruments using this heavier backend (e.g. --escalate ace-step).
 - `--db` — Override the DB path for this scan (default: configured DB).
 - `--no-db` — Don't persist this scan (DB is on by default).

@@ -26,7 +26,7 @@ from . import audio_analysis
 from .names import classify_from_names
 from .recognize import FileProbe, get_recognizer
 from .recognize.heuristic import HeuristicRecognizer
-from .recognize.types import dedupe_genres
+from .recognize.types import Recognition, dedupe_genres
 
 Source = "str | Path | bytes"
 
@@ -99,6 +99,85 @@ class Tags:
         return asdict(self)
 
 
+# Optional content backends, in run order (cheap-first). "auto" composes these
+# with the always-present heuristic per the rules in `_select_recognizers`.
+_OPTIONAL_BACKENDS = ("clap", "ace-step")
+
+# Category-merge tie-break when backends disagree with equal confidence — the
+# content models first, heuristic last.
+_MERGE_PRECEDENCE = {"ace-step": 0, "clap": 1, "heuristic": 2}
+
+
+def _select_recognizers(backend: str) -> list[tuple[str, "Recognizer"]]:
+    """Resolve a backend spec to the (name, recognizer) list to run.
+
+    ``"auto"`` adapts to what's installed: both optional backends → union them
+    (heuristic not needed); exactly one → that one **plus** heuristic (so the
+    cheap, percussion-reliable pass backs up a single model); neither →
+    heuristic alone. Any other value is a single explicit backend (errors if its
+    optional dependency is missing, as before)."""
+    if backend != "auto":
+        if backend == "heuristic":
+            return [("heuristic", HeuristicRecognizer())]
+        return [(backend, get_recognizer(backend))]
+
+    optional: list[tuple[str, object]] = []
+    for name in _OPTIONAL_BACKENDS:
+        try:
+            optional.append((name, get_recognizer(name)))
+        except Exception:
+            pass  # dependency not installed — skip this backend
+    if len(optional) >= 2:
+        return optional
+    if len(optional) == 1:
+        return [optional[0], ("heuristic", HeuristicRecognizer())]
+    return [("heuristic", HeuristicRecognizer())]
+
+
+def _merge_recognitions(recs: list["Recognition | None"]) -> "Recognition | None":
+    """Union several backends' verdicts for one file into a single Recognition.
+
+    - **category**: majority vote; on a tie, the highest-confidence backer (then
+      `_MERGE_PRECEDENCE`). Voting guards against one over-confident backend.
+    - **instruments**: union, order-preserved, deduped.
+    - **genres**: set union via `dedupe_genres` (each tag keeps its `source`).
+    - **caption**: first available (ace-step's).
+    - **confidence**: max; **source**: the joined backend names.
+    """
+    present = [r for r in recs if r is not None]
+    if not present:
+        return None
+    if len(present) == 1:
+        return present[0]
+
+    from collections import Counter
+
+    votes = Counter(r.category for r in present)
+    top = max(votes.values())
+    if top >= 2:
+        tied = [c for c, n in votes.items() if n == top]
+        category = max(tied, key=lambda c: max(r.confidence for r in present if r.category == c))
+    else:
+        best = max(present, key=lambda r: (r.confidence, -_MERGE_PRECEDENCE.get(r.source, 9)))
+        category = best.category
+
+    instruments: list[str] = []
+    for r in present:
+        for ins in r.instruments:
+            if ins not in instruments:
+                instruments.append(ins)
+    genres = dedupe_genres([g for r in present for g in r.genres])
+    caption = next((r.caption for r in present if r.caption), None)
+    return Recognition(
+        category=category,
+        instruments=instruments,
+        source="+".join(sorted({r.source for r in present})),
+        confidence=max(r.confidence for r in present),
+        caption=caption,
+        genres=genres,
+    )
+
+
 def classify(source, backend: str = "heuristic", *, filename: str | None = None) -> Tags:
     """Classify a single audio *source* (path or raw bytes)."""
     return classify_many([source], backend=backend, filenames=[filename] if filename else None)[0]
@@ -155,17 +234,29 @@ def classify_many(
             kind = _resolve_kind(ni["kind"], ni.get("category"), ni.get("bpm"), duration)
             probes.append(FileProbe(path=real, filename=Path(display).name, duration=duration, kind=kind))
 
-        # --- content pass ---
-        if backend == "heuristic":
-            recognizer = HeuristicRecognizer()
-        else:
-            recognizer = get_recognizer(backend)
+        # --- content pass --- (one or more backends; "auto" picks the set)
         import inspect
 
-        if on_result is not None and "on_result" in inspect.signature(recognizer.recognize).parameters:
-            recs = recognizer.recognize(probes, on_result=on_result)
+        selected = _select_recognizers(backend)
+
+        def _run(recognizer, stream):
+            if stream is not None and "on_result" in inspect.signature(recognizer.recognize).parameters:
+                return recognizer.recognize(probes, on_result=stream)
+            return recognizer.recognize(probes)
+
+        if len(selected) == 1:
+            recs = _run(selected[0][1], on_result)
         else:
-            recs = recognizer.recognize(probes)
+            # Run each backend over the whole batch (so model backends amortize),
+            # then union their per-file verdicts. on_result fires post-merge.
+            per_backend = [_run(rec, None) for _name, rec in selected]
+            recs = [_merge_recognitions([pb[i] for pb in per_backend]) for i in range(len(probes))]
+            if on_result is not None:
+                for probe, merged in zip(probes, recs):
+                    try:
+                        on_result(probe, merged)
+                    except Exception:
+                        pass
 
         # --- fuse ---
         out: list[Tags] = []

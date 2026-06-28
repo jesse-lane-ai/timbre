@@ -47,12 +47,19 @@ contract for browser clients, live in **[`docs/api.md`](docs/api.md)**.
 ```sh
 timbre probe kick.wav                  # human-readable
 timbre probe kick.wav --json           # {"ok": true, "data": {...}}
+timbre scan ./packs                    # backend defaults to "auto" (see below)
 timbre scan ./packs --backend heuristic --json
 timbre backends
 ```
 
 Every command takes `--json` and returns `{"ok": true, "data": ...}` or
 `{"ok": false, "error": ...}`.
+
+**`scan` defaults to `--backend auto`**, which adapts to what you've installed:
+if both `clap` and `ace-step` are available it runs **both and unions their
+tags** (instruments merged, genres collected as a set with each tag's source);
+if only one is installed it pairs that one with the always-present `heuristic`;
+if neither, it's `heuristic` alone. Pass an explicit `--backend` to force one.
 
 ### Persistent store (on by default)
 

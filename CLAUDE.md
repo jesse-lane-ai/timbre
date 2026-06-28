@@ -72,6 +72,15 @@ never duplicate classification logic into a surface.
 2. **content pass** — a pluggable recognizer backend listens to the audio.
    `api._resolve_kind` then reconciles the name-kind with duration/bar-alignment.
 
+**`backend="auto"`** (the `scan` default) adapts to what's installed
+(`api._select_recognizers`): both optional backends present → **union** clap +
+ace-step; exactly one → that one **+ heuristic**; neither → heuristic. Multiple
+backends run over the whole batch independently, then `api._merge_recognitions`
+unions each file's verdicts — category by majority vote (tie → highest
+confidence), instruments/genres set-unioned (genres keep per-tag `source`),
+caption from ace-step, confidence maxed. The name pass still overrides category
+when the filename yields one. `Tags.backend` records `"auto"`.
+
 **Recognizer backends** live in `timbre/recognize/`, selected by name through
 `registry.get_recognizer` (data-driven `_BACKENDS` dict). All implement the
 `Recognizer` protocol in `recognize/types.py` (`recognize(items, on_result)` —

@@ -52,3 +52,69 @@ def test_classify_many_batches(tmp_path):
     out = timbre.classify_many(paths, backend="heuristic")
     assert len(out) == 3
     assert all(t.category == "kick" for t in out)
+
+
+# --- auto backend selection + multi-backend merge ----------------------------
+
+def test_select_recognizers_auto_adapts_to_availability(monkeypatch):
+    import timbre.api as api
+    from timbre.errors import BadInputError
+
+    avail = {"clap", "ace-step"}
+
+    class _Fake:
+        def __init__(self, name): self.name = name
+
+    def fake_get(name):
+        if name in avail:
+            return _Fake(name)
+        raise BadInputError("not installed")
+
+    monkeypatch.setattr(api, "get_recognizer", fake_get)
+
+    avail = {"clap", "ace-step"}                       # both -> union, no heuristic
+    assert [n for n, _ in api._select_recognizers("auto")] == ["clap", "ace-step"]
+
+    avail = {"clap"}                                   # one -> that + heuristic
+    assert [n for n, _ in api._select_recognizers("auto")] == ["clap", "heuristic"]
+
+    avail = {"ace-step"}
+    assert [n for n, _ in api._select_recognizers("auto")] == ["ace-step", "heuristic"]
+
+    avail = set()                                      # none -> heuristic only
+    assert [n for n, _ in api._select_recognizers("auto")] == ["heuristic"]
+
+
+def test_merge_recognitions_unions_tags():
+    from timbre.api import _merge_recognitions
+    from timbre.recognize.types import Recognition, genre_score
+
+    a = Recognition("drum", ["kick"], "clap", 0.4,
+                    genres=[genre_score("house", 0.5, "clap")])
+    b = Recognition("drum", ["snare"], "ace-step", 0.7, caption="a drum loop",
+                    genres=[genre_score("hip hop", 0.6, "ace-step"),
+                            genre_score("house", 0.2, "ace-step")])
+    m = _merge_recognitions([a, b])
+    assert m.category == "drum"                        # agreement
+    assert m.instruments == ["kick", "snare"]          # union
+    assert m.caption == "a drum loop"
+    assert m.confidence == 0.7
+    assert m.source == "ace-step+clap"
+    assert {g["genre"] for g in m.genres} == {"house", "hip hop"}
+    house = next(g for g in m.genres if g["genre"] == "house")
+    assert house["score"] == 0.5                       # higher-scoring dup kept
+
+
+def test_merge_recognitions_disagreement_uses_confidence():
+    from timbre.api import _merge_recognitions
+    from timbre.recognize.types import Recognition
+
+    # Two backends, no majority -> highest confidence wins the category.
+    a = Recognition("kick", [], "clap", 0.4)
+    b = Recognition("perc", [], "ace-step", 0.7)
+    assert _merge_recognitions([a, b]).category == "perc"
+
+
+def test_merge_recognitions_all_none():
+    from timbre.api import _merge_recognitions
+    assert _merge_recognitions([None, None]) is None
