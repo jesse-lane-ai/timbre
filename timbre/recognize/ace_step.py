@@ -271,7 +271,9 @@ _VOCAB_VARIANTS: dict[str, tuple[str, ...]] = {
     "brass": ("horns", "horn section"),
     "drums": ("drum",),
     "sound design": ("sound-design", "sfx", "sound effect", "sound effects", "sound fx"),
-    "noise": ("static", "hiss", "white noise", "surface noise"),
+    # NB: "static" was dropped — captions use it for "unchanging/motionless"
+    # ("a static atmosphere"), which false-matched melodic pads as `noise`.
+    "noise": ("hiss", "white noise", "surface noise", "static noise"),
     # genre surface forms (GENRE_VOCAB terms; matched only when scoring genres,
     # since these words aren't in the category/instrument vocabs).
     "hip hop": ("hip-hop", "hiphop"),
