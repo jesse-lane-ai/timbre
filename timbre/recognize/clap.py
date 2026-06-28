@@ -52,13 +52,17 @@ GENRE_MIN_PROB = 0.15
 GENRE_SOFTMAX_TEMP = 0.04
 # Absolute floor on the *raw* top cosine similarity — the real no-signal gate.
 # Softmax is relative within the file, so a noise burst (top sim ~0.06) would
-# still manufacture a "winner"; a confident genre match measures ~0.22–0.28
-# (empirical, acestep/CLAP checkpoint). Below this, the file has no genre.
-GENRE_MIN_SIM = 0.18
+# still manufacture a "winner". Calibrated on 80 real library loops with the
+# prompt below: top-sim median 0.317, p10 0.196 — 0.22 keeps ~84% of loops and
+# drops the weakest/ambiguous ones (e.g. a lone bell-melody loop ~0.11–0.22).
+GENRE_MIN_SIM = 0.22
 
-# Prompt phrasing for the genre text embeddings — CLAP scores a natural phrase
-# better than a bare label. Parallel to GENRE_VOCAB (labels returned unchanged).
-_GENRE_PROMPTS = tuple(f"{g} music" for g in GENRE_VOCAB)
+# Prompt phrasing for the genre text embeddings — CLAP is highly sensitive to it.
+# "a {g} track" beats the bare "{g} music": on known trap/hip-hop loops the
+# latter mislabeled them "rnb", while "a {g} track" surfaces trap/hip-hop and
+# raises separation (validated against known-genre packs). Parallel to
+# GENRE_VOCAB (the returned labels are unchanged).
+_GENRE_PROMPTS = tuple(f"a {g} track" for g in GENRE_VOCAB)
 
 
 def _rank_genres(scores, *, cap: int = GENRE_CAP, min_prob: float = GENRE_MIN_PROB,
