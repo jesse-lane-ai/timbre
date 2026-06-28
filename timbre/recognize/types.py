@@ -91,7 +91,7 @@ INSTRUMENT_VOCAB: tuple[str, ...] = (
     # bass
     "bass", "808", "sub", "reese",
     # melodic / synth
-    "lead", "pad", "pluck", "arp", "synth", "keys", "piano", "organ", "bell",
+    "lead", "pad", "pluck", "arp", "stab", "synth", "keys", "piano", "organ", "bell",
     # acoustic
     "guitar", "strings", "violin", "cello", "brass", "trumpet", "sax", "flute", "choir",
     # plucked world / folk strings

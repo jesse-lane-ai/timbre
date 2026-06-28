@@ -71,7 +71,7 @@ _INSTRUMENT_TO_CATEGORY: dict[str, tuple[str, ...]] = {
     # Pitched/tonal instruments all resolve to the single coarse `melodic`
     # category — the specific instrument is already carried in `instruments`.
     "lead": ("melodic",), "pad": ("melodic",),
-    "pluck": ("melodic",), "arp": ("melodic",),
+    "pluck": ("melodic",), "arp": ("melodic",), "stab": ("melodic",),
     "synth": ("melodic",),
     "keys": ("melodic",), "piano": ("melodic",),
     "organ": ("melodic",), "bell": ("perc", "melodic"),
@@ -261,6 +261,7 @@ _VOCAB_VARIANTS: dict[str, tuple[str, ...]] = {
     "bell": ("bells", "chime", "chimes"),
     "pad": ("pads",),
     "lead": ("leads",),
+    "stab": ("stabs", "stabbed"),
     # Generic vocal — `singing`/`spoken` carry their own (subtype) terms below,
     # so they're kept off the generic `vocal` form to avoid double-matching.
     "vocal": ("vocals", "voice", "voices", "vox"),

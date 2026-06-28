@@ -96,7 +96,7 @@ _DRUM_CATEGORIES = {"kick", "snare", "clap", "snap", "hat", "tom", "crash", "rid
 # coarsen to `melodic` and contribute no instrument tag.
 _INSTRUMENT_CATEGORIES = {
     "bass", "sub", "reese", "808", "guitar", "strings", "brass",
-    "lead", "synth", "pad", "pluck", "keys", "piano",
+    "lead", "synth", "pad", "pluck", "stab", "keys", "piano",
 }
 # Sound-design categories that all roll up to the "fx" instrument tag.
 _FX_CATEGORIES = {"fx", "riser", "sweep", "impact", "drone", "texture", "ambience", "foley", "field", "noise"}
