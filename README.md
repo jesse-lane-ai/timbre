@@ -4,7 +4,8 @@
 
 Content + filename based audio sample classifier. Given an audio file, timbre
 tells you what it is — `kind` (one-shot / loop / recording), a coarse `category`
-(kick/snare/bass/lead/riser/…), `instruments`, and name-derived `key`/`scale`/`bpm`.
+(kick/snare/bass/melodic/riser/…), `instruments`, scored `genres` (from the audio
+backends; mainly loops/recordings), and name-derived `key`/`scale`/`bpm`.
 
 A **recording** is long-form audio that's neither a single hit nor a seamless
 loop — a field recording, jam, take, voice memo, or full mix. It's detected from
