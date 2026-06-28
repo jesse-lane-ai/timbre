@@ -35,6 +35,48 @@ def test_upsert_and_get_fresh_roundtrip(tmp_path):
     assert store.get_fresh(con, "/abs/other.wav", 111.0, "heuristic") is None
 
 
+def test_genres_roundtrip_and_filter(tmp_path):
+    con = store.open_db(tmp_path / "db.sqlite")
+    house = Tags(filename="loop.wav", kind="loop", category="drum",
+                 genres=[{"genre": "house", "score": 0.82}, {"genre": "techno", "score": 0.21}])
+    plain = Tags(filename="hit.wav", kind="one-shot", category="kick")
+    store.upsert(con, "/abs/loop.wav", 1.0, house)
+    store.upsert(con, "/abs/hit.wav", 1.0, plain)
+    con.commit()
+
+    got = store.get(con, "/abs/loop.wav")
+    assert got.genres == [{"genre": "house", "score": 0.82}, {"genre": "techno", "score": 0.21}]
+    assert store.get(con, "/abs/hit.wav").genres == []
+
+    # genre filter matches the JSON-stored list
+    paths = [t.filename for t in store.query(con, genre="house")]
+    assert paths == ["loop.wav"]
+    assert store.query(con, genre="dubstep") == []
+
+
+def test_genres_column_migration(tmp_path):
+    # An older DB without the genres column still opens and reads back empty.
+    import sqlite3
+
+    p = tmp_path / "old.sqlite"
+    con = sqlite3.connect(str(p))
+    con.execute("CREATE TABLE tags (path TEXT PRIMARY KEY, filename TEXT, kind TEXT, "
+                "category TEXT, instruments TEXT, key TEXT, scale TEXT, bpm REAL, "
+                "duration REAL, confidence REAL, caption TEXT, backend TEXT, "
+                "mtime REAL, scanned_at REAL)")
+    con.execute("INSERT INTO tags (path, filename, kind, category) VALUES "
+                "('/abs/x.wav', 'x.wav', 'loop', 'drum')")
+    con.commit()
+    con.close()
+
+    con = store.open_db(p)  # runs the migration
+    row = store.get(con, "/abs/x.wav")
+    assert row is not None and row.genres == []
+    # and new writes carry genres on the migrated DB
+    store.update(con, "/abs/x.wav", {"genres": [{"genre": "techno", "score": 0.9}]})
+    assert store.get(con, "/abs/x.wav").genres == [{"genre": "techno", "score": 0.9}]
+
+
 def test_scan_db_caches_unchanged_files(tmp_path):
     folder = tmp_path / "kicks"
     folder.mkdir()

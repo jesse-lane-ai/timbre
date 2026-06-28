@@ -71,6 +71,7 @@ def probe(path: str, backend: str, as_json: bool):
         _fail(e, as_json)
         return
     d = tags.to_dict()
+    genres_str = ", ".join("{} ({})".format(g["genre"], g["score"]) for g in tags.genres)
     human = "\n".join(
         [
             f"file:        {tags.filename}",
@@ -83,6 +84,7 @@ def probe(path: str, backend: str, as_json: bool):
             f"confidence:  {tags.confidence}",
             f"backend:     {tags.backend}",
         ]
+        + ([f"genres:      {genres_str}"] if tags.genres else [])
         + ([f"caption:     {tags.caption}"] if tags.caption else [])
     )
     _emit(d, human, as_json)
@@ -311,6 +313,7 @@ def db():
 @click.option("--scale")
 @click.option("--backend")
 @click.option("--instrument", help="Match an entry carrying this instrument tag.")
+@click.option("--genre", help="Match an entry carrying this genre tag.")
 @click.option("--bpm-min", type=float)
 @click.option("--bpm-max", type=float)
 @click.option("--path", "path_like", help="Substring match on the stored file path.")
@@ -320,14 +323,14 @@ def db():
 @click.option("--limit", type=int)
 @db_path_option
 @json_option
-def db_find(category, kind, key, scale, backend, instrument, bpm_min, bpm_max, path_like, edited, collection, order, limit, db_path, as_json):
+def db_find(category, kind, key, scale, backend, instrument, genre, bpm_min, bpm_max, path_like, edited, collection, order, limit, db_path, as_json):
     """Query the store with filters (all ANDed)."""
     from . import query as _query
 
     try:
         tags = _query(
             db=db_path, category=category, kind=kind, key=key, scale=scale, backend=backend,
-            instrument=instrument, bpm_min=bpm_min, bpm_max=bpm_max, path_like=path_like,
+            instrument=instrument, genre=genre, bpm_min=bpm_min, bpm_max=bpm_max, path_like=path_like,
             edited=edited, collection=collection, order=order, limit=limit,
         )
     except TimbreError as e:

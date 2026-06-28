@@ -79,6 +79,9 @@ class Tags:
     kind: str  # "loop" | "one-shot" | "unknown"
     category: str | None
     instruments: list[str] = field(default_factory=list)
+    # 0..N ranked {"genre", "score"} pairs from the scoring backends (clap /
+    # ace-step); empty for the heuristic backend and most one-shots.
+    genres: list[dict] = field(default_factory=list)
     key: str | None = None
     scale: str | None = None
     bpm: float | None = None
@@ -170,6 +173,7 @@ def classify_many(
             instruments = list(ni["instruments"])
             confidence = ni["confidence"]
             caption = None
+            genres: list[dict] = []
             if rec is not None:
                 # Content backend wins category when names had none; merge instruments.
                 if category is None:
@@ -179,6 +183,9 @@ def classify_many(
                         instruments.append(ins)
                 confidence = max(confidence, rec.confidence)
                 caption = rec.caption
+                # Genres come only from the content backend (the name pass
+                # doesn't infer them); carry them straight through.
+                genres = list(rec.genres)
             # Instrument tags are the *specific* detail; drop any that merely
             # restate the category (e.g. category=vocal + "vocal", category=bass
             # + "bass", category=kick + "kick"). The category already carries it,
@@ -190,6 +197,7 @@ def classify_many(
                     kind=probe.kind,
                     category=category,
                     instruments=instruments,
+                    genres=genres,
                     key=ni["key"],
                     scale=ni["scale"],
                     bpm=ni["bpm"],
@@ -224,7 +232,8 @@ def _norm_path(path) -> str:
 
 def query(*, db=None, **filters) -> list[Tags]:
     """Filtered read over the store. Filters: category, kind, key, scale,
-    backend, instrument, bpm_min, bpm_max, path_like, edited, order, limit."""
+    backend, instrument, genre, bpm_min, bpm_max, path_like, edited, order,
+    limit."""
     from . import store
 
     con = store.open_db(_resolve_db(db))

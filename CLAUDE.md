@@ -95,6 +95,16 @@ subtypes. Consequently `api.classify` drops any instrument tag equal to the fina
 category (a `kick` one-shot is `category=kick, instruments=["drums"]`, not
 `["drums","kick"]`) — the category already states it, so the tag is redundant.
 
+**`genres` is a scored, ranked, multi-label axis** (`GENRE_VOCAB` in
+`recognize/types.py`) — a list of `{"genre", "score"}` (0..1), not a single pick.
+Only the *scoring* backends populate it: `clap` gives calibrated scores
+(softmax over per-genre audio·text cosine sims; `clap._rank_genres`), `ace-step`
+harvests genres from its caption with occurrence-weighted pseudo-scores
+(`ace_step._score_genres`) — same whole-word matcher as instruments. `heuristic`
+and the name pass produce none. Genre needs a loop/recording to have signal, so
+it's usually empty for one-shots (the score floor drops flat distributions).
+Persisted as a JSON column (`store._genres_to_json`); filterable via `genre=`.
+
 **Vocabularies are the single source of truth** for valid categories/instruments:
 `ONESHOT_CATEGORIES` / `LOOP_CATEGORIES` / `RECORDING_CATEGORIES` and
 `INSTRUMENT_VOCAB` in `recognize/types.py`. `categories_for_kind(kind)` picks the

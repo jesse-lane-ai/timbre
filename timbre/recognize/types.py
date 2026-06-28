@@ -5,11 +5,17 @@ Two-axis taxonomy on top of the existing ``kind`` (one-shot / loop / unknown):
   * ``category``    — single coarse role, vocabulary depends on ``kind``
                        (see ``ONESHOT_CATEGORIES`` / ``LOOP_CATEGORIES``).
   * ``instruments`` — 0..N instrument tags from ``INSTRUMENT_VOCAB``.
+  * ``genres``      — 0..N ``(genre, score)`` pairs from ``GENRE_VOCAB``, ranked
+                       by confidence. Only the scoring backends populate it
+                       (``clap`` gives calibrated softmax scores; ``ace-step``
+                       harvests genres from its caption with occurrence-weighted
+                       pseudo-scores). Mostly empty for one-shots — genre needs a
+                       loop or recording to have any signal.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Protocol
 
@@ -102,6 +108,31 @@ INSTRUMENT_VOCAB: tuple[str, ...] = (
 )
 
 
+# Genre vocabulary — kind-agnostic, scored (not a single pick). Curated and
+# coarse on purpose: genre is fuzzy and hierarchical, and the scoring backends
+# match against these as zero-shot labels (`clap`) or caption keywords
+# (`ace-step`). A lone hit has no genre, so for one-shots this is usually empty.
+GENRE_VOCAB: tuple[str, ...] = (
+    # electronic
+    "house", "deep house", "tech house", "techno", "trance", "dubstep",
+    "drum and bass", "breakbeat", "garage", "trap", "lo-fi", "synthwave",
+    "future bass", "hardstyle", "jungle", "grime", "electro", "ambient",
+    "idm", "downtempo",
+    # urban / rhythm
+    "hip hop", "boom bap", "rnb", "soul", "funk", "disco", "reggae",
+    "dancehall", "afrobeat", "latin",
+    # band / acoustic
+    "pop", "rock", "metal", "punk", "jazz", "blues", "country", "folk", "gospel",
+    # scoring / orchestral
+    "cinematic", "orchestral", "classical",
+)
+
+
+def genre_score(genre: str, score: float) -> dict:
+    """One ranked genre entry: ``{"genre": str, "score": float}`` (score 0..1)."""
+    return {"genre": genre, "score": round(float(score), 3)}
+
+
 @dataclass(frozen=True)
 class FileProbe:
     """Already-computed per-file facts handed to a recognizer — backends must
@@ -122,6 +153,9 @@ class Recognition:
     source: str  # "heuristic" | "clap" | "ace-step"
     confidence: float  # 0..1
     caption: str | None = None  # free-text description, when a backend produces one (e.g. ace-step)
+    # 0..N ranked {"genre", "score"} pairs (see GENRE_VOCAB). Only scoring
+    # backends populate it; heuristic leaves it empty.
+    genres: list[dict] = field(default_factory=list)
 
 
 # Optional streaming sink: a backend may call this as each file's verdict is

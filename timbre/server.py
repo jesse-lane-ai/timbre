@@ -60,6 +60,7 @@ from . import (
 )
 from .errors import TimbreError
 from .recognize.types import (
+    GENRE_VOCAB,
     INSTRUMENT_VOCAB,
     KINDS,
     LOOP_CATEGORIES,
@@ -111,6 +112,7 @@ def _vocab() -> dict:
         "categories_by_kind": by_kind,
         "all_categories": all_categories,
         "instruments": list(INSTRUMENT_VOCAB),
+        "genres": list(GENRE_VOCAB),
     }
 
 
@@ -122,7 +124,7 @@ def _vocab() -> dict:
 ROUTES: tuple[tuple[str, str, str], ...] = (
     ("GET", "/", "library-manager web app (HTML); also served at /ui and /index.html"),
     ("GET", "/backends", "available backend names"),
-    ("GET", "/vocab", "taxonomy: kinds, per-kind categories, instruments"),
+    ("GET", "/vocab", "taxonomy: kinds, per-kind categories, instruments, genres"),
     ("GET", "/health", '{"status": "ok"} liveness probe'),
     ("GET", "/audio?path=…", "a stored sample's raw audio bytes (UI player; store files only)"),
     ("GET", "/tags?category=…&bpm_min=…&limit=…", "filtered list of stored Tags"),
@@ -142,7 +144,7 @@ ROUTES: tuple[tuple[str, str, str], ...] = (
 # Query params that map straight to store.query kwargs, with their coercions.
 _FILTER_COERCE = {
     "category": str, "kind": str, "key": str, "scale": str, "backend": str,
-    "instrument": str, "path_like": str, "order": str, "collection": str,
+    "instrument": str, "genre": str, "path_like": str, "order": str, "collection": str,
     "bpm_min": float, "bpm_max": float, "limit": int,
 }
 

@@ -34,6 +34,7 @@ OUTPUT = REPO_ROOT / "docs" / "reference.md"
 from timbre.api import Tags  # noqa: E402
 from timbre.cli import cli  # noqa: E402
 from timbre.recognize.types import (  # noqa: E402
+    GENRE_VOCAB,
     INSTRUMENT_VOCAB,
     KINDS,
     LOOP_CATEGORIES,
@@ -76,6 +77,11 @@ def _vocab_section() -> str:
         lines.append(f"| `{kind}` | {_md_list(cats)} |")
     lines.append("")
     lines.append(f"**Instruments** (shared across all kinds): {_md_list(INSTRUMENT_VOCAB)}")
+    lines.append("")
+    lines.append(
+        f"**Genres** (scored, ranked; populated by the `clap`/`ace-step` backends "
+        f"only): {_md_list(GENRE_VOCAB)}"
+    )
     lines.append("")
     return "\n".join(lines)
 

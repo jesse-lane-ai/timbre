@@ -472,3 +472,53 @@ def test_world_instruments_resolve_to_melodic_category():
     assert "koto" in instruments and "guzheng" in instruments
     # Not in the coarse loop vocab themselves -> resolve to the melodic role.
     assert _category_from_instruments(instruments, LOOP_CATEGORIES) == "melodic"
+
+
+# --- genre scoring ------------------------------------------------------------
+
+def test_clap_rank_genres_softmax_and_floor():
+    import numpy as np
+    from timbre.recognize.clap import _rank_genres
+    from timbre.recognize.types import GENRE_VOCAB
+
+    # One clearly-dominant genre -> it ranks first with the highest score.
+    scores = np.full(len(GENRE_VOCAB), 0.1)
+    house_idx = GENRE_VOCAB.index("house")
+    techno_idx = GENRE_VOCAB.index("techno")
+    scores[house_idx] = 0.6
+    scores[techno_idx] = 0.45
+    ranked = _rank_genres(scores)
+    assert ranked, "expected at least the dominant genre"
+    assert ranked[0]["genre"] == "house"
+    names = [g["genre"] for g in ranked]
+    assert names[:2] == ["house", "techno"] or names == ["house"]
+    # scores are 0..1 and descending
+    vals = [g["score"] for g in ranked]
+    assert vals == sorted(vals, reverse=True)
+    assert all(0.0 <= v <= 1.0 for v in vals)
+
+
+def test_clap_rank_genres_flat_returns_empty():
+    import numpy as np
+    from timbre.recognize.clap import _rank_genres
+    from timbre.recognize.types import GENRE_VOCAB
+
+    # No signal: uniform sims -> flat softmax, nothing clears the floor.
+    assert _rank_genres(np.full(len(GENRE_VOCAB), 0.2)) == []
+
+
+def test_ace_step_score_genres_from_caption():
+    from timbre.recognize.ace_step import _score_genres
+
+    # Variant forms resolve; emphasis (twice) ranks first.
+    ranked = _score_genres("a lofi boom bap hip hop beat with a hip-hop swing")
+    names = [g["genre"] for g in ranked]
+    assert names[0] == "hip hop"          # mentioned twice (hip hop + hip-hop)
+    assert "lo-fi" in names and "boom bap" in names
+    assert all(0.0 <= g["score"] <= 1.0 for g in ranked)
+
+
+def test_ace_step_score_genres_none_when_absent():
+    from timbre.recognize.ace_step import _score_genres
+
+    assert _score_genres("a dry punchy kick drum one shot") == []

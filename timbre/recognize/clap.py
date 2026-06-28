@@ -20,7 +20,14 @@ extra installed raises an actionable ``BadInputError``.
 from __future__ import annotations
 
 from ..errors import BadInputError
-from .types import INSTRUMENT_VOCAB, FileProbe, Recognition, categories_for_kind
+from .types import (
+    GENRE_VOCAB,
+    INSTRUMENT_VOCAB,
+    FileProbe,
+    Recognition,
+    categories_for_kind,
+    genre_score,
+)
 
 NAME = "clap"
 
@@ -30,6 +37,46 @@ NAME = "clap"
 INSTRUMENT_THRESHOLD_RATIO = 0.5
 # Hard cap on how many instrument labels a single file can carry.
 INSTRUMENT_CAP = 4
+
+# --- genre scoring -----------------------------------------------------------
+# Genre is multi-label and ranked, not a single pick. We softmax the per-genre
+# cosine similarities into a comparable 0..1 distribution and keep the few that
+# clear GENRE_MIN_PROB. On a file with no genre signal (e.g. a lone one-shot) the
+# similarities are nearly uniform, the softmax stays flat, nothing clears the
+# floor, and we correctly return no genres.
+GENRE_CAP = 3
+GENRE_MIN_PROB = 0.15
+# Softmax temperature on the cosine sims. CLAP audio·text sims sit in a narrow
+# band (~0.1–0.5), so a raw softmax is almost flat; dividing by a small temp
+# sharpens it into usable confidences. Lower = peakier. Tunable.
+GENRE_SOFTMAX_TEMP = 0.05
+
+# Prompt phrasing for the genre text embeddings — CLAP scores a natural phrase
+# better than a bare label. Parallel to GENRE_VOCAB (labels returned unchanged).
+_GENRE_PROMPTS = tuple(f"{g} music" for g in GENRE_VOCAB)
+
+
+def _rank_genres(scores, *, cap: int = GENRE_CAP, min_prob: float = GENRE_MIN_PROB,
+                 temp: float = GENRE_SOFTMAX_TEMP) -> list[dict]:
+    """Turn a vector of per-genre cosine similarities (parallel to GENRE_VOCAB)
+    into ranked ``{"genre","score"}`` entries. Pure/numpy-only so it's testable
+    without CLAP: softmax(scores/temp), keep entries >= min_prob, top ``cap``."""
+    import numpy as np
+
+    s = np.asarray(scores, dtype=float)
+    if s.size == 0:
+        return []
+    z = s / max(temp, 1e-6)
+    z = z - z.max()  # numerically stable softmax
+    probs = np.exp(z)
+    probs /= probs.sum()
+    order = probs.argsort()[::-1]
+    out: list[dict] = []
+    for idx in order[:cap]:
+        if probs[idx] < min_prob:
+            break
+        out.append(genre_score(GENRE_VOCAB[idx], float(probs[idx])))
+    return out
 
 CLAP_INSTALL_HINT = (
     "the 'clap' recognizer needs the optional CLAP dependencies — "
@@ -130,6 +177,11 @@ class ClapRecognizer:
         paths = [str(item.path) for item in items]
         audio_embeds = _np(model.get_audio_embedding_from_filelist(x=paths))
 
+        # Genre + instrument prompts don't depend on the file, so embed them once
+        # for the whole batch rather than per file.
+        instrument_embeds = _np(model.get_text_embedding(list(INSTRUMENT_VOCAB)))
+        genre_embeds = _np(model.get_text_embedding(list(_GENRE_PROMPTS)))
+
         results: list[Recognition | None] = []
         for item, audio_embed in zip(items, audio_embeds):
             categories = _category_prompts(item.kind)
@@ -139,7 +191,6 @@ class ClapRecognizer:
             category = categories[best_idx]
             category_confidence = float(category_scores[best_idx])
 
-            instrument_embeds = _np(model.get_text_embedding(list(INSTRUMENT_VOCAB)))
             instrument_scores = audio_embed @ instrument_embeds.T
             top_score = float(instrument_scores.max())
             threshold = top_score * INSTRUMENT_THRESHOLD_RATIO
@@ -151,12 +202,15 @@ class ClapRecognizer:
                 if len(instruments) == 0 or instrument_scores[idx] >= threshold:
                     instruments.append(INSTRUMENT_VOCAB[idx])
 
+            genres = _rank_genres(audio_embed @ genre_embeds.T)
+
             results.append(
                 Recognition(
                     category=category,
                     instruments=instruments,
                     source=NAME,
                     confidence=max(0.0, min(1.0, category_confidence)),
+                    genres=genres,
                 )
             )
         return results

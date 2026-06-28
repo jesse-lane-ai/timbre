@@ -24,6 +24,8 @@ for architecture and internals see [`CLAUDE.md`](../CLAUDE.md).
 
 **Instruments** (shared across all kinds): `kick`, `snare`, `clap`, `snap`, `rimshot`, `hihat`, `open hat`, `crash`, `ride`, `cymbal`, `tom`, `conga`, `bongo`, `shaker`, `tambourine`, `cowbell`, `woodblock`, `clave`, `triangle`, `djembe`, `timbale`, `agogo`, `cabasa`, `drums`, `percussion`, `bass`, `808`, `sub`, `reese`, `lead`, `pad`, `pluck`, `arp`, `synth`, `keys`, `piano`, `organ`, `bell`, `guitar`, `strings`, `violin`, `cello`, `brass`, `trumpet`, `sax`, `flute`, `choir`, `koto`, `guzheng`, `zither`, `sitar`, `harp`, `banjo`, `ukulele`, `marimba`, `kalimba`, `vibraphone`, `xylophone`, `glockenspiel`, `harpsichord`, `accordion`, `vocal`, `singing`, `spoken`, `fx`, `sound design`, `noise`
 
+**Genres** (scored, ranked; populated by the `clap`/`ace-step` backends only): `house`, `deep house`, `tech house`, `techno`, `trance`, `dubstep`, `drum and bass`, `breakbeat`, `garage`, `trap`, `lo-fi`, `synthwave`, `future bass`, `hardstyle`, `jungle`, `grime`, `electro`, `ambient`, `idm`, `downtempo`, `hip hop`, `boom bap`, `rnb`, `soul`, `funk`, `disco`, `reggae`, `dancehall`, `afrobeat`, `latin`, `pop`, `rock`, `metal`, `punk`, `jazz`, `blues`, `country`, `folk`, `gospel`, `cinematic`, `orchestral`, `classical`
+
 ## `Tags` schema
 
 | Field | Type | Default |
@@ -32,6 +34,7 @@ for architecture and internals see [`CLAUDE.md`](../CLAUDE.md).
 | `kind` | `str` | `—` |
 | `category` | `str | None` | `—` |
 | `instruments` | `list[str]` | `[]` |
+| `genres` | `list[dict]` | `[]` |
 | `key` | `str | None` | `None` |
 | `scale` | `str | None` | `None` |
 | `bpm` | `float | None` | `None` |
@@ -142,6 +145,7 @@ Query the store with filters (all ANDed).
 - `--scale`
 - `--backend`
 - `--instrument` — Match an entry carrying this instrument tag.
+- `--genre` — Match an entry carrying this genre tag.
 - `--bpm-min`
 - `--bpm-max`
 - `--path` — Substring match on the stored file path.
@@ -219,7 +223,7 @@ Served by `timbre serve`. CORS is wide open (`*`) — meant to run locally next 
 |---|---|---|
 | `GET` | `/` | library-manager web app (HTML); also served at /ui and /index.html |
 | `GET` | `/backends` | available backend names |
-| `GET` | `/vocab` | taxonomy: kinds, per-kind categories, instruments |
+| `GET` | `/vocab` | taxonomy: kinds, per-kind categories, instruments, genres |
 | `GET` | `/health` | {"status": "ok"} liveness probe |
 | `GET` | `/audio?path=…` | a stored sample's raw audio bytes (UI player; store files only) |
 | `GET` | `/tags?category=…&bpm_min=…&limit=…` | filtered list of stored Tags |

@@ -25,11 +25,13 @@ import time
 from pathlib import Path
 
 from .types import (
+    GENRE_VOCAB,
     INSTRUMENT_VOCAB,
     FileProbe,
     Recognition,
     ResultSink,
     categories_for_kind,
+    genre_score,
 )
 
 NAME = "ace-step"
@@ -270,6 +272,16 @@ _VOCAB_VARIANTS: dict[str, tuple[str, ...]] = {
     "drums": ("drum",),
     "sound design": ("sound-design", "sfx", "sound effect", "sound effects", "sound fx"),
     "noise": ("static", "hiss", "white noise", "surface noise"),
+    # genre surface forms (GENRE_VOCAB terms; matched only when scoring genres,
+    # since these words aren't in the category/instrument vocabs).
+    "hip hop": ("hip-hop", "hiphop"),
+    "lo-fi": ("lofi", "low-fi", "low fi"),
+    "drum and bass": ("dnb", "drum n bass", "drum'n'bass", "d&b"),
+    "rnb": ("r&b", "r and b", "rhythm and blues"),
+    "boom bap": ("boombap",),
+    "tech house": ("tech-house",),
+    "deep house": ("deep-house",),
+    "future bass": ("future-bass",),
 }
 
 
@@ -323,6 +335,33 @@ def _score_categories(caption: str, vocab: tuple[str, ...]) -> list[tuple[str, i
     # Strongest first: most occurrences, then earliest mention, then vocab order.
     scored.sort(key=lambda s: (-s[1], s[2], s[3]))
     return [(term, occ, first) for term, occ, first, _rank in scored]
+
+
+# How many genres a caption may yield, and the source confidence ceiling. These
+# are caption-derived pseudo-scores (occurrence-weighted), not the calibrated
+# softmax scores the clap backend produces — kept modest to signal that.
+GENRE_CAP = 3
+GENRE_CAPTION_CONFIDENCE = 0.6
+
+
+def _score_genres(caption: str) -> list[dict]:
+    """Harvest ranked genres from a free-text caption: whole-word match against
+    GENRE_VOCAB, weight by occurrence count, normalise to 0..1, keep the top
+    ``GENRE_CAP``. Empty when the caption names no genre (the common one-shot
+    case). Pseudo-confidence — a caption that says "techno" twice scores it
+    higher than an incidental single mention, but it is not a probability."""
+    low = caption.lower()
+    counts: list[tuple[str, int]] = []
+    for term in GENRE_VOCAB:
+        n = len(list(_word_re(term).finditer(low)))
+        if n:
+            counts.append((term, n))
+    if not counts:
+        return []
+    counts.sort(key=lambda c: (-c[1], GENRE_VOCAB.index(c[0])))
+    counts = counts[:GENRE_CAP]
+    total = sum(n for _, n in counts)
+    return [genre_score(term, GENRE_CAPTION_CONFIDENCE * n / total) for term, n in counts]
 
 
 class AceStepRecognizer:
@@ -468,6 +507,7 @@ class AceStepRecognizer:
         cats = _categories(item.kind)
         scored_cats = _score_categories(caption, cats)
         instruments = _match_vocab(caption, INSTRUMENT_VOCAB)[:INSTRUMENT_CAP]
+        genres = _score_genres(caption)
         if scored_cats:
             category, confidence = scored_cats[0][0], CAPTION_CONFIDENCE
         else:
@@ -489,6 +529,7 @@ class AceStepRecognizer:
                         # mis-bucketing can be diagnosed from the analytics log.
                         "category_candidates": [c[0] for c in scored_cats],
                         "instruments": instruments,
+                        "genres": genres,
                         "confidence": confidence, "vram_mib": _gpu_mem_mib(),
                         "caption": caption})
         return Recognition(
@@ -497,6 +538,7 @@ class AceStepRecognizer:
             source=NAME,
             confidence=confidence,
             caption=caption,
+            genres=genres,
         )
 
     def _apply_loop_context(self, items: list[FileProbe],

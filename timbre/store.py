@@ -11,11 +11,28 @@ comma-joined; everything else maps directly.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import time
 from pathlib import Path
 
 from .api import Tags
+
+
+def _genres_to_json(genres) -> str:
+    """Serialize the ranked-genre list to compact JSON for storage. Compact
+    (no spaces) so the `genre` LIKE filter in query() can match `"genre":"x"`."""
+    return json.dumps(list(genres or []), separators=(",", ":"))
+
+
+def _genres_from_json(text) -> list[dict]:
+    if not text:
+        return []
+    try:
+        data = json.loads(text)
+    except (ValueError, TypeError):
+        return []
+    return data if isinstance(data, list) else []
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS tags (
@@ -24,6 +41,7 @@ CREATE TABLE IF NOT EXISTS tags (
     kind        TEXT,
     category    TEXT,
     instruments TEXT,
+    genres      TEXT,
     key         TEXT,
     scale       TEXT,
     bpm         REAL,
@@ -52,7 +70,7 @@ CREATE TABLE IF NOT EXISTS collection_members (
 """
 
 # Columns a caller may write via update() — path/mtime/scanned_at/edited are managed.
-_EDITABLE = ("filename", "kind", "category", "instruments", "key", "scale", "bpm", "duration", "confidence", "caption", "backend")
+_EDITABLE = ("filename", "kind", "category", "instruments", "genres", "key", "scale", "bpm", "duration", "confidence", "caption", "backend")
 _ORDERABLE = {"path", "filename", "category", "kind", "bpm", "confidence", "scanned_at"}
 
 
@@ -63,10 +81,12 @@ def open_db(path: str | Path) -> sqlite3.Connection:
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys = ON")
     con.executescript(_SCHEMA)
-    # Migrate older DBs that predate the `edited` column.
+    # Migrate older DBs that predate added columns.
     cols = {r["name"] for r in con.execute("PRAGMA table_info(tags)")}
     if "edited" not in cols:
         con.execute("ALTER TABLE tags ADD COLUMN edited INTEGER DEFAULT 0")
+    if "genres" not in cols:
+        con.execute("ALTER TABLE tags ADD COLUMN genres TEXT")
     con.commit()
     return con
 
@@ -110,6 +130,7 @@ def query(
     scale: str | None = None,
     backend: str | None = None,
     instrument: str | None = None,
+    genre: str | None = None,
     bpm_min: float | None = None,
     bpm_max: float | None = None,
     path_like: str | None = None,
@@ -134,6 +155,10 @@ def query(
     if instrument is not None:
         clauses.append("(',' || instruments || ',') LIKE ?")
         params.append(f"%,{instrument},%")
+    if genre is not None:
+        # genres is compact JSON: [{"genre":"house","score":0.8},...]
+        clauses.append("genres LIKE ?")
+        params.append(f'%"genre":"{genre}"%')
     if bpm_min is not None:
         clauses.append("bpm >= ?")
         params.append(bpm_min)
@@ -176,6 +201,8 @@ def update(con: sqlite3.Connection, abspath: str, fields: dict[str, object]) -> 
             raise BadInputError(f"field '{k}' is not editable (editable: {', '.join(_EDITABLE)})")
         if k == "instruments" and isinstance(v, (list, tuple)):
             v = ",".join(str(x) for x in v)
+        if k == "genres" and isinstance(v, (list, tuple)):
+            v = _genres_to_json(v)
         clean[k] = v
 
     existing = con.execute("SELECT 1 FROM tags WHERE path = ?", (abspath,)).fetchone()
@@ -204,18 +231,20 @@ def delete(con: sqlite3.Connection, abspath: str) -> bool:
 def upsert(con: sqlite3.Connection, abspath: str, mtime: float | None, tags: Tags) -> None:
     con.execute(
         """INSERT INTO tags
-           (path, filename, kind, category, instruments, key, scale, bpm,
+           (path, filename, kind, category, instruments, genres, key, scale, bpm,
             duration, confidence, caption, backend, mtime, scanned_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
            ON CONFLICT(path) DO UPDATE SET
             filename=excluded.filename, kind=excluded.kind, category=excluded.category,
-            instruments=excluded.instruments, key=excluded.key, scale=excluded.scale,
-            bpm=excluded.bpm, duration=excluded.duration, confidence=excluded.confidence,
-            caption=excluded.caption, backend=excluded.backend, mtime=excluded.mtime,
+            instruments=excluded.instruments, genres=excluded.genres, key=excluded.key,
+            scale=excluded.scale, bpm=excluded.bpm, duration=excluded.duration,
+            confidence=excluded.confidence, caption=excluded.caption,
+            backend=excluded.backend, mtime=excluded.mtime,
             scanned_at=excluded.scanned_at""",
         (
             abspath, tags.filename, tags.kind, tags.category,
-            ",".join(tags.instruments), tags.key, tags.scale, tags.bpm,
+            ",".join(tags.instruments), _genres_to_json(tags.genres),
+            tags.key, tags.scale, tags.bpm,
             tags.duration, tags.confidence, tags.caption, tags.backend,
             mtime, time.time(),
         ),
@@ -327,6 +356,7 @@ def _row_to_tags(row: sqlite3.Row) -> Tags:
         kind=row["kind"],
         category=row["category"],
         instruments=[t for t in (row["instruments"] or "").split(",") if t],
+        genres=_genres_from_json(row["genres"] if "genres" in row.keys() else None),
         key=row["key"],
         scale=row["scale"],
         bpm=row["bpm"],
