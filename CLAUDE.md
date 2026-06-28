@@ -102,8 +102,11 @@ Only the *scoring* backends populate it: `clap` gives calibrated scores
 harvests genres from its caption with occurrence-weighted pseudo-scores
 (`ace_step._score_genres`) — same whole-word matcher as instruments. `heuristic`
 and the name pass produce none. Genre needs a loop/recording to have signal, so
-it's usually empty for one-shots (the score floor drops flat distributions).
-Persisted as a JSON column (`store._genres_to_json`); filterable via `genre=`.
+clap only scores those kinds (one-shots → empty), and `_rank_genres` has an
+**absolute raw-cosine floor** (`GENRE_MIN_SIM`) as the real no-signal gate —
+softmax alone is relative within a file and would manufacture a "winner" from
+noise (a noise burst's top sim ~0.06 vs a confident match's ~0.25). Persisted as
+a JSON column (`store._genres_to_json`); filterable via `genre=`.
 
 **Vocabularies are the single source of truth** for valid categories/instruments:
 `ONESHOT_CATEGORIES` / `LOOP_CATEGORIES` / `RECORDING_CATEGORIES` and

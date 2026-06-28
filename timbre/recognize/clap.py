@@ -47,9 +47,14 @@ INSTRUMENT_CAP = 4
 GENRE_CAP = 3
 GENRE_MIN_PROB = 0.15
 # Softmax temperature on the cosine sims. CLAP audio·text sims sit in a narrow
-# band (~0.1–0.5), so a raw softmax is almost flat; dividing by a small temp
+# band (~0.1–0.3), so a raw softmax is almost flat; dividing by a small temp
 # sharpens it into usable confidences. Lower = peakier. Tunable.
-GENRE_SOFTMAX_TEMP = 0.05
+GENRE_SOFTMAX_TEMP = 0.04
+# Absolute floor on the *raw* top cosine similarity — the real no-signal gate.
+# Softmax is relative within the file, so a noise burst (top sim ~0.06) would
+# still manufacture a "winner"; a confident genre match measures ~0.22–0.28
+# (empirical, acestep/CLAP checkpoint). Below this, the file has no genre.
+GENRE_MIN_SIM = 0.18
 
 # Prompt phrasing for the genre text embeddings — CLAP scores a natural phrase
 # better than a bare label. Parallel to GENRE_VOCAB (labels returned unchanged).
@@ -57,14 +62,16 @@ _GENRE_PROMPTS = tuple(f"{g} music" for g in GENRE_VOCAB)
 
 
 def _rank_genres(scores, *, cap: int = GENRE_CAP, min_prob: float = GENRE_MIN_PROB,
-                 temp: float = GENRE_SOFTMAX_TEMP) -> list[dict]:
+                 min_sim: float = GENRE_MIN_SIM, temp: float = GENRE_SOFTMAX_TEMP) -> list[dict]:
     """Turn a vector of per-genre cosine similarities (parallel to GENRE_VOCAB)
     into ranked ``{"genre","score"}`` entries. Pure/numpy-only so it's testable
-    without CLAP: softmax(scores/temp), keep entries >= min_prob, top ``cap``."""
+    without CLAP. Returns ``[]`` when the top raw similarity is below ``min_sim``
+    (no genre signal); otherwise softmax(scores/temp), keep entries >= min_prob,
+    top ``cap``."""
     import numpy as np
 
     s = np.asarray(scores, dtype=float)
-    if s.size == 0:
+    if s.size == 0 or float(s.max()) < min_sim:
         return []
     z = s / max(temp, 1e-6)
     z = z - z.max()  # numerically stable softmax
@@ -202,7 +209,13 @@ class ClapRecognizer:
                 if len(instruments) == 0 or instrument_scores[idx] >= threshold:
                     instruments.append(INSTRUMENT_VOCAB[idx])
 
-            genres = _rank_genres(audio_embed @ genre_embeds.T)
+            # Genre needs rhythmic/harmonic context — a single hit has none, and
+            # CLAP will still confidently mislabel a tonal one-shot as a pad
+            # genre. Only score genres for loops/recordings.
+            genres = (
+                _rank_genres(audio_embed @ genre_embeds.T)
+                if item.kind in ("loop", "recording") else []
+            )
 
             results.append(
                 Recognition(

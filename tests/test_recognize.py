@@ -191,8 +191,16 @@ def test_get_recognizer_heuristic():
 
 
 def test_clap_backend_missing_dependency_raises_actionable_error():
-    with pytest.raises(BadInputError, match=r"pip install 'timbre\[clap\]'"):
-        get_recognizer("clap")
+    # Only meaningful when the optional CLAP deps are absent (the CI base
+    # install). Skip where they're installed — selecting the backend succeeds.
+    try:
+        import laion_clap  # noqa: F401
+        import torch  # noqa: F401
+    except ImportError:
+        with pytest.raises(BadInputError, match=r"pip install 'timbre\[clap\]'"):
+            get_recognizer("clap")
+    else:
+        pytest.skip("CLAP deps installed — missing-dependency path not exercisable")
 
 
 def test_ace_step_backend_missing_dependency_raises_actionable_error(monkeypatch):
@@ -503,8 +511,20 @@ def test_clap_rank_genres_flat_returns_empty():
     from timbre.recognize.clap import _rank_genres
     from timbre.recognize.types import GENRE_VOCAB
 
-    # No signal: uniform sims -> flat softmax, nothing clears the floor.
-    assert _rank_genres(np.full(len(GENRE_VOCAB), 0.2)) == []
+    # Uniform sims above the abs floor -> flat softmax, nothing clears min_prob.
+    assert _rank_genres(np.full(len(GENRE_VOCAB), 0.25)) == []
+
+
+def test_clap_rank_genres_below_abs_floor_returns_empty():
+    import numpy as np
+    from timbre.recognize.clap import _rank_genres, GENRE_MIN_SIM
+    from timbre.recognize.types import GENRE_VOCAB
+
+    # A weak/noise file: even with a peak, the top raw sim is below min_sim, so
+    # there is no genre signal regardless of the softmax shape.
+    scores = np.full(len(GENRE_VOCAB), 0.02)
+    scores[GENRE_VOCAB.index("jungle")] = GENRE_MIN_SIM - 0.05
+    assert _rank_genres(scores) == []
 
 
 def test_ace_step_score_genres_from_caption():
