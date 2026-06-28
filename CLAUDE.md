@@ -95,8 +95,14 @@ subtypes. Consequently `api.classify` drops any instrument tag equal to the fina
 category (a `kick` one-shot is `category=kick, instruments=["drums"]`, not
 `["drums","kick"]`) — the category already states it, so the tag is redundant.
 
-**`genres` is a scored, ranked, multi-label axis** (`GENRE_VOCAB` in
-`recognize/types.py`) — a list of `{"genre", "score"}` (0..1), not a single pick.
+**`genres` is a scored, multi-label *set*** (`GENRE_VOCAB` in `recognize/types.py`)
+— a deduped set of `{"genre", "score", "source"}` tags (0..1; `source` = the
+backend that produced it), not a single pick. `dedupe_genres` enforces set
+semantics (one tag per genre, highest score wins) so multi-backend verdicts can
+union. `source` exists because clap's zero-shot genre labels are measurably
+weaker than ace-step's caption-derived ones (on hip-hop/trap loops clap mislabels
+as rnb/deep house) — consumers can down-weight a source rather than trust scores
+blindly.
 Only the *scoring* backends populate it: `clap` gives calibrated scores
 (softmax over per-genre audio·text cosine sims; `clap._rank_genres`), `ace-step`
 harvests genres from its caption with occurrence-weighted pseudo-scores

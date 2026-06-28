@@ -82,7 +82,7 @@ def _rank_genres(scores, *, cap: int = GENRE_CAP, min_prob: float = GENRE_MIN_PR
     for idx in order[:cap]:
         if probs[idx] < min_prob:
             break
-        out.append(genre_score(GENRE_VOCAB[idx], float(probs[idx])))
+        out.append(genre_score(GENRE_VOCAB[idx], float(probs[idx]), NAME))
     return out
 
 CLAP_INSTALL_HINT = (

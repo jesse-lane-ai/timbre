@@ -26,6 +26,7 @@ from . import audio_analysis
 from .names import classify_from_names
 from .recognize import FileProbe, get_recognizer
 from .recognize.heuristic import HeuristicRecognizer
+from .recognize.types import dedupe_genres
 
 Source = "str | Path | bytes"
 
@@ -184,8 +185,8 @@ def classify_many(
                 confidence = max(confidence, rec.confidence)
                 caption = rec.caption
                 # Genres come only from the content backend (the name pass
-                # doesn't infer them); carry them straight through.
-                genres = list(rec.genres)
+                # doesn't infer them); collapse to a deduped set of tags.
+                genres = dedupe_genres(rec.genres)
             # Instrument tags are the *specific* detail; drop any that merely
             # restate the category (e.g. category=vocal + "vocal", category=bass
             # + "bass", category=kick + "kick"). The category already carries it,

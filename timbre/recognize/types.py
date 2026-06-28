@@ -128,9 +128,25 @@ GENRE_VOCAB: tuple[str, ...] = (
 )
 
 
-def genre_score(genre: str, score: float) -> dict:
-    """One ranked genre entry: ``{"genre": str, "score": float}`` (score 0..1)."""
-    return {"genre": genre, "score": round(float(score), 3)}
+def genre_score(genre: str, score: float, source: str) -> dict:
+    """One genre tag: ``{"genre", "score", "source"}``. ``score`` is 0..1;
+    ``source`` is the backend that produced it (``"clap"`` / ``"ace-step"``) so a
+    consumer can weight a weaker source's tags — clap's zero-shot genre labels
+    are less trustworthy than ace-step's caption-derived ones."""
+    return {"genre": genre, "score": round(float(score), 3), "source": source}
+
+
+def dedupe_genres(entries: list[dict]) -> list[dict]:
+    """Treat genres as a *set* of tags: collapse duplicate genre names to one
+    tag (highest score wins, ties keep the first), returned highest-score-first.
+    Lets verdicts from multiple backends union into a single genre set without
+    repeats."""
+    best: dict[str, dict] = {}
+    for e in entries:
+        g = e["genre"]
+        if g not in best or e["score"] > best[g]["score"]:
+            best[g] = e
+    return sorted(best.values(), key=lambda e: -e["score"])
 
 
 @dataclass(frozen=True)

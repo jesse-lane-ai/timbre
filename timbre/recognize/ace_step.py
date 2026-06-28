@@ -364,7 +364,7 @@ def _score_genres(caption: str) -> list[dict]:
     counts.sort(key=lambda c: (-c[1], GENRE_VOCAB.index(c[0])))
     counts = counts[:GENRE_CAP]
     total = sum(n for _, n in counts)
-    return [genre_score(term, GENRE_CAPTION_CONFIDENCE * n / total) for term, n in counts]
+    return [genre_score(term, GENRE_CAPTION_CONFIDENCE * n / total, NAME) for term, n in counts]
 
 
 class AceStepRecognizer:

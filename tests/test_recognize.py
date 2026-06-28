@@ -498,6 +498,7 @@ def test_clap_rank_genres_softmax_and_floor():
     ranked = _rank_genres(scores)
     assert ranked, "expected at least the dominant genre"
     assert ranked[0]["genre"] == "house"
+    assert all(g["source"] == "clap" for g in ranked)  # provenance stamped
     names = [g["genre"] for g in ranked]
     assert names[:2] == ["house", "techno"] or names == ["house"]
     # scores are 0..1 and descending
@@ -536,6 +537,20 @@ def test_ace_step_score_genres_from_caption():
     assert names[0] == "hip hop"          # mentioned twice (hip hop + hip-hop)
     assert "lo-fi" in names and "boom bap" in names
     assert all(0.0 <= g["score"] <= 1.0 for g in ranked)
+    assert all(g["source"] == "ace-step" for g in ranked)
+
+
+def test_dedupe_genres_is_a_set():
+    from timbre.recognize.types import dedupe_genres, genre_score
+
+    merged = dedupe_genres([
+        genre_score("house", 0.4, "clap"),
+        genre_score("house", 0.9, "ace-step"),   # same genre, higher score wins
+        genre_score("techno", 0.5, "clap"),
+    ])
+    assert [g["genre"] for g in merged] == ["house", "techno"]   # unique, score-sorted
+    house = next(g for g in merged if g["genre"] == "house")
+    assert house["score"] == 0.9 and house["source"] == "ace-step"
 
 
 def test_ace_step_score_genres_none_when_absent():

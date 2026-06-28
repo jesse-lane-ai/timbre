@@ -37,15 +37,16 @@ def test_upsert_and_get_fresh_roundtrip(tmp_path):
 
 def test_genres_roundtrip_and_filter(tmp_path):
     con = store.open_db(tmp_path / "db.sqlite")
-    house = Tags(filename="loop.wav", kind="loop", category="drum",
-                 genres=[{"genre": "house", "score": 0.82}, {"genre": "techno", "score": 0.21}])
+    genres = [{"genre": "house", "score": 0.82, "source": "clap"},
+              {"genre": "techno", "score": 0.21, "source": "clap"}]
+    house = Tags(filename="loop.wav", kind="loop", category="drum", genres=genres)
     plain = Tags(filename="hit.wav", kind="one-shot", category="kick")
     store.upsert(con, "/abs/loop.wav", 1.0, house)
     store.upsert(con, "/abs/hit.wav", 1.0, plain)
     con.commit()
 
     got = store.get(con, "/abs/loop.wav")
-    assert got.genres == [{"genre": "house", "score": 0.82}, {"genre": "techno", "score": 0.21}]
+    assert got.genres == genres   # source survives the JSON round-trip
     assert store.get(con, "/abs/hit.wav").genres == []
 
     # genre filter matches the JSON-stored list
